@@ -7,8 +7,8 @@ from typing import Any, NamedTuple
 
 import dm_env
 import numpy as np
-from dm_control import manipulation, suite
-from dm_control.suite.wrappers import action_scale, pixels
+#from dm_control import manipulation, suite
+#from dm_control.suite.wrappers import action_scale, pixels
 from dm_env import StepType, specs
 
 
@@ -168,43 +168,43 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
                                 discount=time_step.discount or 1.0)
 
     def observation_spec(self):
-        return self._env.observation_spec()
+        return specs.Array(self._env.observation_space.shape, np.uint8, name='obs')
 
     def action_spec(self):
-        return self._env.action_spec()
+        return specs.Array(self._env.action_space.shape, self._env.action_space.dtype, name='action')
 
     def __getattr__(self, name):
         return getattr(self._env, name)
 
 
-def make(name, frame_stack, action_repeat, seed):
-    domain, task = name.split('_', 1)
-    # overwrite cup to ball_in_cup
-    domain = dict(cup='ball_in_cup').get(domain, domain)
-    # make sure reward is not visualized
-    if (domain, task) in suite.ALL_TASKS:
-        env = suite.load(domain,
-                         task,
-                         task_kwargs={'random': seed},
-                         visualize_reward=False)
-        pixels_key = 'pixels'
-    else:
-        name = f'{domain}_{task}_vision'
-        env = manipulation.load(name, seed=seed)
-        pixels_key = 'front_close'
-    # add wrappers
-    env = ActionDTypeWrapper(env, np.float32)
-    env = ActionRepeatWrapper(env, action_repeat)
-    env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
-    # add renderings for clasical tasks
-    if (domain, task) in suite.ALL_TASKS:
-        # zoom in camera for quadruped
-        camera_id = dict(quadruped=2).get(domain, 0)
-        render_kwargs = dict(height=84, width=84, camera_id=camera_id)
-        env = pixels.Wrapper(env,
-                             pixels_only=True,
-                             render_kwargs=render_kwargs)
-    # stack several frames
-    env = FrameStackWrapper(env, frame_stack, pixels_key)
-    env = ExtendedTimeStepWrapper(env)
-    return env
+#def make(name, frame_stack, action_repeat, seed):
+#    domain, task = name.split('_', 1)
+#    # overwrite cup to ball_in_cup
+#    domain = dict(cup='ball_in_cup').get(domain, domain)
+#    # make sure reward is not visualized
+#    if (domain, task) in suite.ALL_TASKS:
+#        env = suite.load(domain,
+#                         task,
+#                         task_kwargs={'random': seed},
+#                         visualize_reward=False)
+#        pixels_key = 'pixels'
+#    else:
+#        name = f'{domain}_{task}_vision'
+#        env = manipulation.load(name, seed=seed)
+#        pixels_key = 'front_close'
+#    # add wrappers
+#    env = ActionDTypeWrapper(env, np.float32)
+#    env = ActionRepeatWrapper(env, action_repeat)
+#    env = action_scale.Wrapper(env, minimum=-1.0, maximum=+1.0)
+#    # add renderings for clasical tasks
+#    if (domain, task) in suite.ALL_TASKS:
+#        # zoom in camera for quadruped
+#        camera_id = dict(quadruped=2).get(domain, 0)
+#        render_kwargs = dict(height=84, width=84, camera_id=camera_id)
+#        env = pixels.Wrapper(env,
+#                             pixels_only=True,
+#                             render_kwargs=render_kwargs)
+#    # stack several frames
+#    env = FrameStackWrapper(env, frame_stack, pixels_key)
+#    env = ExtendedTimeStepWrapper(env)
+#    return env

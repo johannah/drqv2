@@ -1,22 +1,22 @@
 defaults:
   - _self_
-  - task@_global_: quadruped_walk
+  - task@_global_: robosuite_can
   - override hydra/launcher: submitit_local
 
 # task settings
 frame_stack: 3
-action_repeat: 2
+action_repeat: 1
 discount: 0.99
 # train settings
-num_seed_frames: 4000
+num_seed_frames: 5000
 # eval
 eval_every_frames: 10000
-num_eval_episodes: 10
+num_eval_episodes: 1
 # snapshot
-save_snapshot: false
+save_snapshot: true
 # replay buffer
 replay_buffer_size: 1000000
-replay_buffer_num_workers: 4
+replay_buffer_num_workers: 3
 nstep: 3
 batch_size: 256
 # misc
@@ -54,7 +54,7 @@ hydra:
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
-    cpus_per_task: 10
+    cpus_per_task: 4
     gpus_per_node: 1
     tasks_per_node: 1
     mem_gb: 160

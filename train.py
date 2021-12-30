@@ -9,26 +9,47 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
+import dm_env
 from pathlib import Path
-
+from dm_env import specs
 import hydra
 import numpy as np
+from copy import deepcopy
 import torch
-from dm_env import specs
+#from dmc import ExtendedTimeStepWrapper
+#import dmc
+import h5py
+import robomimic.utils.file_utils as FileUtils
+import robomimic.utils.env_utils as EnvUtils
+import robomimic.utils.obs_utils as ObsUtils
+from robosuite.controllers import load_controller_config
+from robosuite.utils import transform_utils
+from robosuite.wrappers import GymImageDomainRandomizationWrapper, ExtendedTimeStep
+from typing import NamedTuple
+import robosuite
 
-import dmc
 import utils
 from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
-
+from IPython import embed
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_spec, action_spec, cfg):
-    cfg.obs_shape = obs_spec.shape
-    cfg.action_shape = action_spec.shape
+def make_agent(obs_shape, action_shape, cfg):
+    cfg.obs_shape = obs_shape
+    cfg.action_shape = action_shape
     return hydra.utils.instantiate(cfg)
+
+
+def make_robosuite_env(task_name, env_kwargs, discount, frame_stack=3, seed=1111):
+    env = robosuite.make(
+                env_name=task_name,
+                **env_kwargs,
+            )
+    env = GymImageDomainRandomizationWrapper(env, frame_stack=frame_stack, discount=discount)
+    return env
+from collections import deque
 
 
 class Workspace:
@@ -41,8 +62,8 @@ class Workspace:
         self.device = torch.device(cfg.device)
         self.setup()
 
-        self.agent = make_agent(self.train_env.observation_spec(),
-                                self.train_env.action_spec(),
+        self.agent = make_agent(self.train_env.obs_shape,
+                                self.train_env.action_shape,
                                 self.cfg.agent)
         self.timer = utils.Timer()
         self._global_step = 0
@@ -52,19 +73,53 @@ class Workspace:
         # create logger
         self.logger = Logger(self.work_dir, use_tb=self.cfg.use_tb)
         # create envs
-        self.train_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
-                                  self.cfg.action_repeat, self.cfg.seed)
-        self.eval_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
-                                 self.cfg.action_repeat, self.cfg.seed)
+        #dummy_spec = dict(
+        #     obs=dict(
+        #         low_dim=[
+        #                  'robot0_joint_pos', 'robot0_joint_pos_cos',
+        #                   'robot0_joint_pos_sin', 'robot0_joint_vel',
+        #                   'robot0_eef_pos', 'robot0_eef_quat',
+        #                   'robot0_gripper_qpos', 'robot0_gripper_qvel',
+        #                   'Can_pos', 'Can_quat',
+        #                   'Can_to_robot0_eef_pos', 'Can_to_robot0_eef_quat',
+        #                   'robot0_proprio-state', 'object-state'],
+        #         rgb=['frontview_image', 'sideview_image', 'agentview_image', 'birdview_image]
+        #     ))
+        dummy_spec = dict(
+             obs=dict(
+                 low_dim=[],
+                 rgb=['frontview_image']
+             ))
+
+        #ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
+        self.env_meta = env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=self.cfg.dataset_path)
+        self.task_name = env_meta['env_name']
+        self.env_kwargs = env_meta['env_kwargs']
+        for k in self.cfg.env_override:
+            self.env_kwargs[k] = self.cfg.env_override[k]
+        if 'has_renderer' in self.env_kwargs:
+            del self.env_kwargs['has_renderer']
+        self.train_env = make_robosuite_env(
+                                            task_name=self.task_name,
+                                            env_kwargs=self.env_kwargs,
+                                            discount=self.cfg.discount,
+                                            frame_stack=self.cfg.frame_stack,
+                                            seed=self.cfg.seed)
+        self.eval_env = make_robosuite_env(
+                                           task_name=self.task_name,
+                                           env_kwargs=self.env_kwargs,
+                                           discount=self.cfg.discount,
+                                           frame_stack=self.cfg.frame_stack,
+                                           seed=self.cfg.seed+1)
         # create replay buffer
-        data_specs = (self.train_env.observation_spec(),
-                      self.train_env.action_spec(),
-                      specs.Array((1,), np.float32, 'reward'),
-                      specs.Array((1,), np.float32, 'discount'))
+        self.data_specs = (
+                      specs.Array(shape=self.train_env.obs_shape, dtype=np.uint8, name='observation'),
+                      specs.Array(shape=self.train_env.action_shape, dtype=np.float32, name='action'),
+                      specs.Array(shape=(1,), dtype=np.float32, name='reward'),
+                      specs.Array(shape=(1,), dtype=np.float32, name='discount'))
 
-        self.replay_storage = ReplayBufferStorage(data_specs,
+        self.replay_storage = ReplayBufferStorage(self.data_specs,
                                                   self.work_dir / 'buffer')
-
         self.replay_loader = make_replay_loader(
             self.work_dir / 'buffer', self.cfg.replay_buffer_size,
             self.cfg.batch_size, self.cfg.replay_buffer_num_workers,
@@ -131,6 +186,9 @@ class Workspace:
                                       self.cfg.action_repeat)
 
         episode_step, episode_reward = 0, 0
+        demo_episodes, demo_steps = self.load_dataset()
+        self._global_episode += demo_episodes
+        self._global_step += demo_steps
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
         self.train_video_recorder.init(time_step.observation)
@@ -203,6 +261,59 @@ class Workspace:
         for k, v in payload.items():
             self.__dict__[k] = v
 
+
+    def load_dataset(self):
+        f = h5py.File(self.cfg.dataset_path, "r")
+        demos = list(f["data"].keys())
+        print('found {} trajectories'.format(len(demos)))
+        inds = np.argsort([int(elem[5:]) for elem in demos])
+        demos = [demos[i] for i in inds]
+        episodes = 0
+        steps = 0
+        for ind in range(len(demos)):
+            ep = demos[ind]
+            time_steps, total_reward = self.playback_trajectory(f['data/{}'.format(ep)])
+            print('loaded demo {} with total reward {} and len {}'.format(ep, total_reward, len(time_steps)))
+            # add to replay buffer each step in traj
+            [self.replay_storage.add(ts) for ts in time_steps]
+            steps += len(time_steps)
+            episodes += 1
+        return episodes, steps
+
+    def playback_trajectory(self, traj_grp):
+        actions = np.array(traj_grp['actions'], dtype=np.float32)
+        rewards = np.array(traj_grp['rewards'], dtype=np.float32)
+        image_name = self.env_kwargs['camera_names']+'_image'
+        traj_len = actions.shape[0]
+        frames = deque([], maxlen=self.cfg.frame_stack)
+        for i in range(self.cfg.frame_stack):
+            first_img_dict = {}
+            first_img_dict[image_name] = traj_grp['obs/{}'.format(image_name)][0]
+            frames.append(self.train_env._get_image_obs(first_img_dict))
+        first_action = np.zeros_like(self.train_env.action_spec[0]).astype(np.float32)
+        first_obs = np.concatenate(list(frames), axis=0)
+        first_time_step = ExtendedTimeStep(step_type=dm_env.StepType.FIRST,
+                                        discount=self.cfg.discount,
+                                        reward=0.0, observation=first_obs,
+                                        action=first_action)
+        time_steps = [first_time_step]
+        total_reward = 0
+        for i in range(traj_len):
+            img_dict = {}
+            img_dict[image_name] = traj_grp['obs/{}'.format(image_name)][i]
+            frames.append(self.train_env._get_image_obs(img_dict))
+            obs = np.concatenate(list(frames), axis=0)
+            if i == traj_len-1:
+                step_type = dm_env.StepType.LAST
+            else:
+                step_type = dm_env.StepType.MID
+            time_step = ExtendedTimeStep(step_type=step_type,
+                                        discount=self.cfg.discount,
+                                        reward=rewards[i], observation=obs,
+                                        action=actions[i])
+            time_steps.append(time_step)
+            total_reward += rewards[i]
+        return time_steps, total_reward
 
 @hydra.main(config_path='cfgs', config_name='config')
 def main(cfg):

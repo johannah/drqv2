@@ -7,12 +7,12 @@ import io
 import random
 import traceback
 from collections import defaultdict
-
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import IterableDataset
 
+from IPython import embed
 
 def episode_len(episode):
     # subtract -1 because the dummy first transition
@@ -47,7 +47,7 @@ class ReplayBufferStorage:
 
     def add(self, time_step):
         for spec in self._data_specs:
-            value = time_step[spec.name]
+            value = eval('time_step.%s' %spec.name)
             if np.isscalar(value):
                 value = np.full(spec.shape, value, spec.dtype)
             assert spec.shape == value.shape and spec.dtype == value.dtype
