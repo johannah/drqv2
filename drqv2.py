@@ -68,9 +68,9 @@ class Encoder(nn.Module):
 
 
 class Actor(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, max_action):
         super().__init__()
-
+        self.max_action = max_action
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
@@ -89,7 +89,7 @@ class Actor(nn.Module):
         mu = torch.tanh(mu)
         std = torch.ones_like(mu) * std
 
-        dist = utils.TruncatedNormal(mu, std)
+        dist = utils.TruncatedNormal(mu, std, low=-self.max_action, high=self.max_action)
         return dist
 
 
@@ -124,7 +124,9 @@ class Critic(nn.Module):
 class DrQV2Agent:
     def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
-                 update_every_steps, stddev_schedule, stddev_clip, use_tb):
+                 update_every_steps, stddev_schedule, stddev_clip, use_tb, max_action):
+        self.max_action = max_action
+        assert self.max_action <= 1
         self.device = device
         self.critic_target_tau = critic_target_tau
         self.update_every_steps = update_every_steps
@@ -136,7 +138,7 @@ class DrQV2Agent:
         # models
         self.encoder = Encoder(obs_shape).to(device)
         self.actor = Actor(self.encoder.repr_dim, action_shape, feature_dim,
-                           hidden_dim).to(device)
+                           hidden_dim, self.max_action).to(device)
 
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
                              hidden_dim).to(device)
@@ -171,8 +173,9 @@ class DrQV2Agent:
         else:
             action = dist.sample(clip=None)
             if step < self.num_expl_steps:
-                action.uniform_(-1.0, 1.0)
-        return action.cpu().numpy()[0]
+                action.uniform_(-1.0, 1.0)*self.max_action
+        action =  action.cpu().numpy()[0]
+        return action
 
     def update_critic(self, obs, action, reward, discount, next_obs, step):
         metrics = dict()

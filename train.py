@@ -36,8 +36,9 @@ from IPython import embed
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_shape, action_shape, cfg):
+def make_agent(obs_shape, action_shape, max_action, cfg):
     cfg.obs_shape = obs_shape
+    cfg.max_action = float(max_action)
     cfg.action_shape = action_shape
     return hydra.utils.instantiate(cfg)
 
@@ -64,6 +65,7 @@ class Workspace:
 
         self.agent = make_agent(self.train_env.obs_shape,
                                 self.train_env.action_shape,
+                                self.train_env.action_spec[1][0], # HACKY
                                 self.cfg.agent)
         self.timer = utils.Timer()
         self._global_step = 0
@@ -216,9 +218,6 @@ class Workspace:
                 time_step = self.train_env.reset()
                 self.replay_storage.add(time_step)
                 self.train_video_recorder.init(time_step.observation)
-                # try to save snapshot
-                if self.cfg.save_snapshot:
-                    self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
 
@@ -227,6 +226,9 @@ class Workspace:
                 self.logger.log('eval_total_time', self.timer.total_time(),
                                 self.global_frame)
                 self.eval()
+                # try to save snapshot
+                if self.cfg.save_snapshot:
+                    self.save_snapshot()
 
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):

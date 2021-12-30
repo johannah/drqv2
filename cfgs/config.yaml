@@ -8,7 +8,7 @@ frame_stack: 3
 action_repeat: 1
 discount: 0.99
 # train settings
-num_seed_frames: 5000
+num_seed_frames: 500
 # eval
 eval_every_frames: 10000
 num_eval_episodes: 1
@@ -35,6 +35,7 @@ agent:
   _target_: drqv2.DrQV2Agent
   obs_shape: ??? # to be specified later
   action_shape: ??? # to be specified later
+  max_action: ??? # to be specified later
   device: ${device}
   lr: ${lr}
   critic_target_tau: 0.01
