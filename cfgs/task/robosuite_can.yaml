@@ -1,13 +1,14 @@
 defaults:
  - medium
  - _self_
-dataset_path:  "/usr/local/data/jhansen/jaco/DH22/robomimic/datasets/can/ph/demo_jaco.hdf5"
+dataset_path: "/usr/local/data/jhansen/jaco/DH22/robomimic/datasets/can/ph/demo_jaco.hdf5"
 load_dataset: True
 env_override:
- camera_names: 'agentview'
+ camera_names: 'frontview'
  use_object_obs: False
  horizon: 150
  ignore_done: False
+
 
 task_name: robosuite_can
 

@@ -14,6 +14,8 @@ from pathlib import Path
 from dm_env import specs
 import hydra
 import numpy as np
+np.set_printoptions(suppress=True)
+
 from copy import deepcopy
 import torch
 #from dmc import ExtendedTimeStepWrapper
@@ -94,9 +96,21 @@ class Workspace:
              ))
 
         #ObsUtils.initialize_obs_utils_with_obs_specs(obs_modality_specs=dummy_spec)
-        self.env_meta = env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=self.cfg.dataset_path)
-        self.task_name = env_meta['env_name']
-        self.env_kwargs = env_meta['env_kwargs']
+        if self.cfg.dataset_path == '':
+            self.env_kwargs = {}
+            self.task_name = self.cfg.env_name
+            controller_file = self.cfg.env_override.controller_config_file
+            controller_fpath = os.path.join(
+                           os.path.split(robosuite.__file__)[0], 'controllers', 'config',
+                           controller_file)
+            assert os.path.exists(controller_fpath)
+            from robosuite.controllers import load_controller_config
+            self.env_kwargs['controller_configs'] = load_controller_config(custom_fpath=controller_fpath)
+            del self.cfg.env_override.controller_config_file
+        else:
+            env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=self.cfg.dataset_path)
+            self.env_kwargs = env_meta['env_kwargs']
+            self.task_name = env_meta['env_name']
         for k in self.cfg.env_override:
             self.env_kwargs[k] = self.cfg.env_override[k]
         if 'has_renderer' in self.env_kwargs:
@@ -170,7 +184,7 @@ class Workspace:
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f'{self.global_frame}.mp4')
+            self.video_recorder.save(f'{self.global_frame:0>8}.mp4')
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)
@@ -188,9 +202,11 @@ class Workspace:
                                       self.cfg.action_repeat)
 
         episode_step, episode_reward = 0, 0
-        demo_episodes, demo_steps = self.load_dataset()
-        self._global_episode += demo_episodes
-        self._global_step += demo_steps
+        if self.cfg.dataset_path != '':
+            pass
+            #demo_episodes, demo_steps = self.load_dataset()
+            #self._global_episode += demo_episodes
+            #self._global_step += demo_steps
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
         self.train_video_recorder.init(time_step.observation)
@@ -272,14 +288,29 @@ class Workspace:
         demos = [demos[i] for i in inds]
         episodes = 0
         steps = 0
+        all_time_steps = []
         for ind in range(len(demos)):
             ep = demos[ind]
             time_steps, total_reward = self.playback_trajectory(f['data/{}'.format(ep)])
             print('loaded demo {} with total reward {} and len {}'.format(ep, total_reward, len(time_steps)))
             # add to replay buffer each step in traj
             [self.replay_storage.add(ts) for ts in time_steps]
+            all_time_steps.extend(time_steps)
             steps += len(time_steps)
             episodes += 1
+
+            if ind == 0:
+                tsr = self.eval_env.reset()
+                self.video_recorder.init(self.eval_env, enabled=1)
+                for time_step in  time_steps:
+                    with torch.no_grad(), utils.eval_mode(self.agent):
+                        action = self.agent.act(time_step.observation,
+                                                self.global_step,
+                                                eval_mode=True)
+                    ts = self.eval_env.step(time_step.action)
+                    self.video_recorder.record(self.eval_env)
+
+                self.video_recorder.save(f'{self.global_frame}.mp4')
         return episodes, steps
 
     def playback_trajectory(self, traj_grp):
