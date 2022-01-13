@@ -2,6 +2,7 @@ defaults:
  - medium
  - _self_
 dataset_path:  ""
+xpos_targets: ["ball_default_site"]
 env_name: Reach
 env_override:
  ignore_done: False
@@ -11,7 +12,7 @@ env_override:
  use_object_obs: false
  use_camera_obs: true
  camera_names: 'frontview'
- horizon: 150
+ horizon: 50
  camera_widths: 84
  camera_heights: 84
  controller_config_file: 'jaco_joint_position_5hz.json'

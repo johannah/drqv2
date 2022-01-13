@@ -7,8 +7,94 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+from robosuite.utils.dh_parameters import robot_attributes
 import utils
+
+
+def torch_dh_transform(theta, d, a, alpha, device):
+    bs = theta.shape[0]
+    T = torch.zeros((bs,4,4), device=device)
+    T[:,0,0] = T[:,0,0] +  torch.cos(theta)
+    T[:,0,1] = T[:,0,1] + -torch.sin(theta)*torch.cos(alpha)
+    T[:,0,2] = T[:,0,2] +  torch.sin(theta)*torch.sin(alpha)
+    T[:,0,3] = T[:,0,3] +  a*torch.cos(theta)
+    T[:,1,0] = T[:,1,0] +  torch.sin(theta)
+    T[:,1,1] = T[:,1,1] +   torch.cos(theta)*torch.cos(alpha)
+    T[:,1,2] = T[:,1,2] +   -torch.cos(theta)*torch.sin(alpha)
+    T[:,1,3] = T[:,1,3] +  a*torch.sin(theta)
+    T[:,2,1] = T[:,2,1] +  torch.sin(alpha)
+    T[:,2,2] = T[:,2,2] +   torch.cos(alpha)
+    T[:,2,3] = T[:,2,3] +  d
+    T[:,3,3] = T[:,3,3] +  1.0
+    return T
+
+def np_dh_transform(theta, d, a, alpha):
+    bs = theta.shape[0]
+    T = np.zeros((bs,4,4))
+    T[:,0,0] = T[:,0,0] +  np.cos(theta)
+    T[:,0,1] = T[:,0,1] + -np.sin(theta)*np.cos(alpha)
+    T[:,0,2] = T[:,0,2] +  np.sin(theta)*np.sin(alpha)
+    T[:,0,3] = T[:,0,3] +  a*np.cos(theta)
+    T[:,1,0] = T[:,1,0] +    np.sin(theta)
+    T[:,1,1] = T[:,1,1] +    np.cos(theta)*np.cos(alpha)
+    T[:,1,2] = T[:,1,2] +   -np.cos(theta)*np.sin(alpha)
+    T[:,1,3] = T[:,1,3] +  a*np.sin(theta)
+    T[:,2,1] = T[:,2,1] +  np.sin(alpha)
+    T[:,2,2] = T[:,2,2] +   np.cos(alpha)
+    T[:,2,3] = T[:,2,3] +  d
+    T[:,3,3] = T[:,3,3] +  1.0
+    return T
+
+
+class robotDH():
+    def __init__(self, robot_name, device='cpu'):
+        self.device = device
+        self.robot_name = robot_name
+        self.npdh = robot_attributes[self.robot_name]
+        self.base_matrix = robot_attributes[self.robot_name]['base_matrix']
+        self.t_base_matrix = torch.Tensor(robot_attributes[self.robot_name]['base_matrix']).to(self.device)
+        self.tdh = {}
+        for key, item in self.npdh.items():
+            self.tdh[key] = torch.FloatTensor(item).to(self.device)
+
+    def np_angle2ee(self, angles):
+        """
+            convert np joint angle to end effector for for ts,angles (in radians)
+        """
+        # ts, bs, feat
+        ts, fs = angles.shape
+        _T = self.base_matrix
+        for _a in range(fs):
+            _T1 = self.np_dh_transform(_a, angles[:,_a])
+            _T = np.matmul(_T, _T1)
+        return _T
+
+    def torch_angle2ee(self, angles):
+        """
+            convert joint angle to end effector for reacher for ts,bs,f
+        """
+        # ts, bs, feat
+        ts, fs = angles.shape
+        #ee_pred = torch.zeros((ts,4,4)).to(self.device)
+        _T = self.t_base_matrix
+        for _a in range(fs):
+            _T1 = self.torch_dh_transform(_a, angles[:,_a])
+            _T = torch.matmul(_T, _T1)
+        return _T
+
+    def np_dh_transform(self, dh_index, angles):
+        theta = self.npdh['DH_theta_sign'][dh_index]*angles+self.npdh['DH_theta_offset'][dh_index]
+        d = self.npdh['DH_d'][dh_index]
+        a = self.npdh['DH_a'][dh_index]
+        alpha = self.npdh['DH_alpha'][dh_index]
+        return np_dh_transform(theta, d, a, alpha)
+
+    def torch_dh_transform(self, dh_index, angles):
+        theta = self.tdh['DH_theta_sign'][dh_index]*angles+self.tdh['DH_theta_offset'][dh_index]
+        d = self.tdh['DH_d'][dh_index]
+        a = self.tdh['DH_a'][dh_index]
+        alpha = self.tdh['DH_alpha'][dh_index]
+        return torch_dh_transform(theta, d, a, alpha, self.device)
 
 
 class RandomShiftsAug(nn.Module):
@@ -124,10 +210,18 @@ class Critic(nn.Module):
 class DrQV2Agent:
     def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
-                 update_every_steps, stddev_schedule, stddev_clip, use_tb, max_action):
+                 update_every_steps, stddev_schedule, stddev_clip,
+                 use_tb, max_action, robot_name="Jaco", use_kinematic_loss=False, kine_weight=1):
+        self.kine_weight = kine_weight
         self.max_action = max_action
+        self.robot_name = robot_name
+        self.use_kinematic_loss = use_kinematic_loss
+        if self.use_kinematic_loss:
+            print("using kinematic loss")
         assert self.max_action <= 1
         self.device = device
+        self.robot_dh = robotDH(robot_name=self.robot_name, device=self.device)
+        self.n_joints = len(self.robot_dh.npdh['DH_a'])
         self.critic_target_tau = critic_target_tau
         self.update_every_steps = update_every_steps
         self.use_tb = use_tb
@@ -157,6 +251,14 @@ class DrQV2Agent:
         self.train()
         self.critic_target.train()
 
+    def kinematic_fn(self, joint_action, body, next_body):
+        # turn relative action to abs action
+        joint_position = joint_action[:, :self.n_joints] + body[:, :self.n_joints]
+        eef_rot = self.robot_dh.torch_angle2ee(joint_position)
+        eef_pos = eef_rot[:,:3,3]
+        target_pos = next_body[:,self.n_joints:self.n_joints+3]
+        return eef_pos, target_pos
+
     def train(self, training=True):
         self.training = training
         self.encoder.train(training)
@@ -177,7 +279,7 @@ class DrQV2Agent:
         action =  action.cpu().numpy()[0]
         return action
 
-    def update_critic(self, obs, action, reward, discount, next_obs, step):
+    def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
 
         with torch.no_grad():
@@ -189,13 +291,20 @@ class DrQV2Agent:
             target_Q = reward + (discount * target_V)
 
         Q1, Q2 = self.critic(obs, action)
-        critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
+        if self.use_kinematic_loss:
+            eef_pos, target_pos = self.kinematic_fn(action, body, next_body)
+            kine_loss = self.kine_weight * F.mse_loss(eef_pos, target_pos)
+            critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q) + kine_loss
+        else:
+            critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
 
         if self.use_tb:
             metrics['critic_target_q'] = target_Q.mean().item()
             metrics['critic_q1'] = Q1.mean().item()
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item()
+            if self.use_kinematic_loss:
+                metrics['kine_loss'] = kine_loss.item()
 
         # optimize encoder and critic
         self.encoder_opt.zero_grad(set_to_none=True)
@@ -237,7 +346,7 @@ class DrQV2Agent:
             return metrics
 
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obs = utils.to_torch(
+        obs, body, action, reward, discount, next_obs, next_body = utils.to_torch(
             batch, self.device)
 
         # augment
@@ -253,7 +362,7 @@ class DrQV2Agent:
 
         # update critic
         metrics.update(
-            self.update_critic(obs, action, reward, discount, next_obs, step))
+            self.update_critic(obs, body, action, reward, discount, next_obs, next_body, step))
 
         # update actor
         metrics.update(self.update_actor(obs.detach(), step))

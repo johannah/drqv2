@@ -4,6 +4,7 @@ defaults:
   - override hydra/launcher: submitit_local
 
 # task settings
+
 frame_stack: 3
 action_repeat: 1
 discount: 0.99
@@ -46,6 +47,9 @@ agent:
   feature_dim: ${feature_dim}
   stddev_schedule: ${stddev_schedule}
   stddev_clip: 0.3
+  use_kinematic_loss: 1
+  kine_weight: 1
+  robot_name: ??? # to be specified later
 
 hydra:
   run:
@@ -55,7 +59,7 @@ hydra:
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
-    cpus_per_task: 4
+    cpus_per_task: 2
     gpus_per_node: 1
     tasks_per_node: 1
     mem_gb: 160

@@ -26,7 +26,7 @@ import robomimic.utils.env_utils as EnvUtils
 import robomimic.utils.obs_utils as ObsUtils
 from robosuite.controllers import load_controller_config
 from robosuite.utils import transform_utils
-from robosuite.wrappers import GymImageDomainRandomizationWrapper, ExtendedTimeStep
+from robosuite.wrappers import DRQDHImageDomainRandomizationWrapper, ExtendedTimeStep
 from typing import NamedTuple
 import robosuite
 
@@ -35,24 +35,25 @@ from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
 from IPython import embed
+from collections import deque
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_shape, action_shape, max_action, cfg):
+def make_agent(obs_shape, action_shape, max_action, robot_name, cfg):
     cfg.obs_shape = obs_shape
     cfg.max_action = float(max_action)
     cfg.action_shape = action_shape
+    cfg.robot_name = robot_name
     return hydra.utils.instantiate(cfg)
 
 
-def make_robosuite_env(task_name, env_kwargs, discount, frame_stack=3, seed=1111):
+def make_robosuite_env(task_name, xpos_targets, env_kwargs, discount, frame_stack=3, seed=1111):
     env = robosuite.make(
                 env_name=task_name,
                 **env_kwargs,
             )
-    env = GymImageDomainRandomizationWrapper(env, frame_stack=frame_stack, discount=discount)
+    env = DRQDHImageDomainRandomizationWrapper(env, xpos_targets=xpos_targets, frame_stack=frame_stack, discount=discount)
     return env
-from collections import deque
 
 
 class Workspace:
@@ -68,6 +69,7 @@ class Workspace:
         self.agent = make_agent(self.train_env.obs_shape,
                                 self.train_env.action_shape,
                                 self.train_env.action_spec[1][0], # HACKY
+                                self.train_env.robots[0].name,
                                 self.cfg.agent)
         self.timer = utils.Timer()
         self._global_step = 0
@@ -115,14 +117,17 @@ class Workspace:
             self.env_kwargs[k] = self.cfg.env_override[k]
         if 'has_renderer' in self.env_kwargs:
             del self.env_kwargs['has_renderer']
+        self.xpos_targets = self.cfg.xpos_targets
         self.train_env = make_robosuite_env(
                                             task_name=self.task_name,
+                                            xpos_targets=self.xpos_targets,
                                             env_kwargs=self.env_kwargs,
                                             discount=self.cfg.discount,
                                             frame_stack=self.cfg.frame_stack,
                                             seed=self.cfg.seed)
         self.eval_env = make_robosuite_env(
                                            task_name=self.task_name,
+                                            xpos_targets=self.xpos_targets,
                                            env_kwargs=self.env_kwargs,
                                            discount=self.cfg.discount,
                                            frame_stack=self.cfg.frame_stack,
@@ -130,6 +135,7 @@ class Workspace:
         # create replay buffer
         self.data_specs = (
                       specs.Array(shape=self.train_env.obs_shape, dtype=np.uint8, name='observation'),
+                      specs.Array(shape=self.train_env.body_shape, dtype=np.float32, name='body'),
                       specs.Array(shape=self.train_env.action_shape, dtype=np.float32, name='action'),
                       specs.Array(shape=(1,), dtype=np.float32, name='reward'),
                       specs.Array(shape=(1,), dtype=np.float32, name='discount'))
