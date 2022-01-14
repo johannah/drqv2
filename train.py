@@ -21,9 +21,6 @@ import torch
 #from dmc import ExtendedTimeStepWrapper
 #import dmc
 import h5py
-import robomimic.utils.file_utils as FileUtils
-import robomimic.utils.env_utils as EnvUtils
-import robomimic.utils.obs_utils as ObsUtils
 from robosuite.controllers import load_controller_config
 from robosuite.utils import transform_utils
 from robosuite.wrappers import DRQDHImageDomainRandomizationWrapper, ExtendedTimeStep
@@ -110,11 +107,16 @@ class Workspace:
             self.env_kwargs['controller_configs'] = load_controller_config(custom_fpath=controller_fpath)
             del self.cfg.env_override.controller_config_file
         else:
+            import robomimic.utils.file_utils as FileUtils
+            import robomimic.utils.env_utils as EnvUtils
+            import robomimic.utils.obs_utils as ObsUtils
             env_meta = FileUtils.get_env_metadata_from_dataset(dataset_path=self.cfg.dataset_path)
             self.env_kwargs = env_meta['env_kwargs']
             self.task_name = env_meta['env_name']
+
         for k in self.cfg.env_override:
             self.env_kwargs[k] = self.cfg.env_override[k]
+        self.fps = self.env_kwargs['control_freq']
         if 'has_renderer' in self.env_kwargs:
             del self.env_kwargs['has_renderer']
         self.xpos_targets = self.cfg.xpos_targets
@@ -149,7 +151,7 @@ class Workspace:
         self._replay_iter = None
 
         self.video_recorder = VideoRecorder(
-            self.work_dir if self.cfg.save_video else None)
+            self.work_dir if self.cfg.save_video else None, fps=self.fps)
         self.train_video_recorder = TrainVideoRecorder(
             self.work_dir if self.cfg.save_train_video else None)
 
