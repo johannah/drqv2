@@ -47,7 +47,7 @@ agent:
   feature_dim: ${feature_dim}
   stddev_schedule: ${stddev_schedule}
   stddev_clip: 0.3
-  use_kinematic_loss: 1
+  use_kinematic_loss: 0
   kine_weight: 1
   robot_name: ??? # to be specified later
 
