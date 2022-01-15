@@ -29,8 +29,10 @@ for task in ['can', 'reach', 'door']:
             else:
                 data = data.append(loaded)
                 print('adding', task, data.shape)
-    fig = px.line(data, x='step', y='episode_reward', color='name', markers=True, symbol='phase', width=2800, height=800)
-    pio.write_image(fig, 'results_'+task+'.png')
+
+    if not start:
+        fig = px.line(data, x='step', y='episode_reward', color='name', markers=True, symbol='phase', width=2800, height=800)
+        pio.write_image(fig, 'results_'+task+'.png')
 
 
 
