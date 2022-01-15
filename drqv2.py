@@ -213,6 +213,19 @@ class Critic(nn.Module):
         eef_pos = eef_rot[:,:3,3]
         return eef_pos
 
+    def kinematic_fn_torquet(self, action, body, next_body):
+       # turn relative action to abs action
+       desired_qpos = delta_joints + body[:,:self.n_joints]
+       vel_pos_error = -joint_vel
+       desired_torque = np.multiply(np.array(position_error), np.array(self.kp)) + np.multiply(vel_pos_error, self.kd)
+       # Return desired torques plus gravity compensations
+       self.torques = np.dot(self.mass_matrix, desired_torque) + self.torque_compensation
+
+       eef_rot = self.robot_dh.torch_angle2ee(next_body[:,:self.n_joints])
+       eef_pos = eef_rot[:,:3,3]
+       target_pos = next_body[:,self.n_joints:self.n_joints+3]
+       return eef_pos, target_pos
+
     def forward(self, obs, action, body):
         h = self.trunk(obs)
         if self.use_kinematic_loss in [0,1]:

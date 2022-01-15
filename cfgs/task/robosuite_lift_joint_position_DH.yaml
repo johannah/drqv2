@@ -10,7 +10,7 @@ agent:
 env_override:
  ignore_done: False
  robots: Jaco
- control_freq: 20
+ control_freq: 10 
  reward_shaping: true
  use_object_obs: false
  use_camera_obs: true
@@ -18,8 +18,8 @@ env_override:
  horizon: 100
  camera_widths: 84
  camera_heights: 84
- controller_config_file: 'joint_position.json'
+ controller_config_file: 'jaco_joint_position_10hz.json'
  hard_reset: false
 
-task_name: robosuite_reach_easy
+task_name: robosuite_lift_easy_DH
 

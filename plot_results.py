@@ -8,7 +8,7 @@ import pandas as pd
 from glob import glob
 from IPython import embed
 
-for task in ['can', 'reach', 'door']:
+for task in ['can', 'reach', 'door', 'lift']:
     train_paths = sorted(glob(os.path.join('exp_local', '*', '*%s*'%task, 'train.csv')))
     start = True
     for pp in train_paths:
