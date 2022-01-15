@@ -38,7 +38,7 @@ torch.backends.cudnn.benchmark = True
 
 def make_agent(obs_shape, action_shape, max_action, robot_name, cfg):
     cfg.obs_shape = obs_shape
-    cfg.max_action = float(max_action)
+    cfg.max_action = [float(m) for m in max_action]
     cfg.action_shape = action_shape
     cfg.robot_name = robot_name
     return hydra.utils.instantiate(cfg)
@@ -65,7 +65,7 @@ class Workspace:
 
         self.agent = make_agent(self.train_env.obs_shape,
                                 self.train_env.action_shape,
-                                self.train_env.action_spec[1][0], # HACKY
+                                self.train_env.action_spec[1],
                                 self.train_env.robots[0].name,
                                 self.cfg.agent)
         self.timer = utils.Timer()

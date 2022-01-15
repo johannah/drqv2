@@ -4,6 +4,9 @@ defaults:
 dataset_path:  ""
 xpos_targets: ["ball_default_site"]
 env_name: Reach
+agent:
+ kine_weight: 1
+ use_kinematic_loss: 1
 env_override:
  ignore_done: False
  robots: Jaco

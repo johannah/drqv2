@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from robosuite.utils.dh_parameters import robot_attributes
+from IPython import embed
 import utils
 
 
@@ -174,8 +175,7 @@ class Actor(nn.Module):
         mu = self.policy(h)
         mu = torch.tanh(mu)
         std = torch.ones_like(mu) * std
-
-        dist = utils.TruncatedNormal(mu, std, low=-self.max_action, high=self.max_action)
+        dist = utils.TruncatedNormal(mu, std, low=-1, high=1)
         return dist
 
 
@@ -213,12 +213,12 @@ class DrQV2Agent:
                  update_every_steps, stddev_schedule, stddev_clip,
                  use_tb, max_action, robot_name="Jaco", use_kinematic_loss=False, kine_weight=1):
         self.kine_weight = kine_weight
-        self.max_action = max_action
+        self.max_action = torch.Tensor(max_action).to(device)
         self.robot_name = robot_name
         self.use_kinematic_loss = use_kinematic_loss
         if self.use_kinematic_loss:
             print("using kinematic loss")
-        assert self.max_action <= 1
+        assert 0 < self.max_action.max() <= 1
         self.device = device
         self.robot_dh = robotDH(robot_name=self.robot_name, device=self.device)
         self.n_joints = len(self.robot_dh.npdh['DH_a'])
@@ -275,9 +275,15 @@ class DrQV2Agent:
         else:
             action = dist.sample(clip=None)
             if step < self.num_expl_steps:
-                action.uniform_(-1.0, 1.0)*self.max_action
-        action =  action.cpu().numpy()[0]
-        return action
+                action.uniform_(-1.0, 1.0)
+        # scale bt min/max actions
+        scaled_action = (((action+1)*(2*self.max_action))/2.0)+-self.max_action
+        for xc, mm in enumerate(self.max_action):
+            if torch.abs(scaled_action[:,xc]).max() > mm:
+                print('update')
+                embed()
+        scaled_action =  scaled_action.cpu().numpy()[0]
+        return scaled_action
 
     def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
@@ -285,7 +291,14 @@ class DrQV2Agent:
         with torch.no_grad():
             stddev = utils.schedule(self.stddev_schedule, step)
             dist = self.actor(next_obs, stddev)
-            next_action = dist.sample(clip=self.stddev_clip)
+            unscaled_next_action = dist.sample(clip=self.stddev_clip)
+
+            next_action = (((unscaled_next_action+1)*(2*self.max_action))/2.0)+-self.max_action
+            for xc, mm in enumerate(self.max_action):
+                if torch.abs(next_action[:,xc]).max() > mm:
+                    print('update critic')
+                    embed()
+
             target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
             target_V = torch.min(target_Q1, target_Q2)
             target_Q = reward + (discount * target_V)
@@ -320,7 +333,14 @@ class DrQV2Agent:
 
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(obs, stddev)
-        action = dist.sample(clip=self.stddev_clip)
+        unscaled_action = dist.sample(clip=self.stddev_clip)
+
+        action = (((unscaled_action+1)*(2*self.max_action))/2.0)+-self.max_action
+        for xc, mm in enumerate(self.max_action):
+            if torch.abs(action[:,xc]).max() > mm:
+                print('update actor')
+                embed()
+
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
         Q1, Q2 = self.critic(obs, action)
         Q = torch.min(Q1, Q2)
