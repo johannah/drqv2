@@ -180,30 +180,48 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, use_kinematic_loss, robot_dh):
         super().__init__()
 
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
+
+        self.robot_dh = robot_dh
+        self.n_joints = len(self.robot_dh.npdh['DH_a'])
+        self.use_kinematic_loss = use_kinematic_loss
+        if self.use_kinematic_loss in [0,1]:
+            self.input_dim = feature_dim + action_shape[0]
+        elif self.use_kinematic_loss == 'eef':
+            self.input_dim = feature_dim + action_shape[0] + 3
         self.Q1 = nn.Sequential(
-            nn.Linear(feature_dim + action_shape[0], hidden_dim),
+            nn.Linear(self.input_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, 1))
 
         self.Q2 = nn.Sequential(
-            nn.Linear(feature_dim + action_shape[0], hidden_dim),
+            nn.Linear(self.input_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, 1))
 
         self.apply(utils.weight_init)
 
-    def forward(self, obs, action):
+    def kinematic_view_eef(self, joint_action, body):
+        # turn relative action to abs action
+        joint_position = joint_action[:, :self.n_joints] + body[:, :self.n_joints]
+        eef_rot = self.robot_dh.torch_angle2ee(joint_position)
+        eef_pos = eef_rot[:,:3,3]
+        return eef_pos
+
+    def forward(self, obs, action, body):
         h = self.trunk(obs)
-        h_action = torch.cat([h, action], dim=-1)
+        if self.use_kinematic_loss in [0,1]:
+            h_action = torch.cat([h, action], dim=-1)
+        elif self.use_kinematic_loss == 'eef':
+            kine_action = self.kinematic_view_eef(action, body)
+            h_action = torch.cat([h, action, kine_action], dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
-
         return q1, q2
 
 
@@ -211,13 +229,19 @@ class DrQV2Agent:
     def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_action, robot_name="Jaco", use_kinematic_loss=False, kine_weight=1):
+                 use_tb, max_action, robot_name="Jaco", use_kinematic_loss=0, kine_weight=1):
         self.kine_weight = kine_weight
         self.max_action = torch.Tensor(max_action).to(device)
         self.robot_name = robot_name
-        self.use_kinematic_loss = use_kinematic_loss
-        if self.use_kinematic_loss:
+        if use_kinematic_loss == 0:
+            self.use_kinematic_loss = 0
+        else:
             print("using kinematic loss")
+            if use_kinematic_loss == 1:
+                self.use_kinematic_loss = 'loss_in_critic'
+            else:
+                self.use_kinematic_loss = use_kinematic_loss
+
         assert 0 < self.max_action.max() <= 1
         self.device = device
         self.robot_dh = robotDH(robot_name=self.robot_name, device=self.device)
@@ -235,9 +259,9 @@ class DrQV2Agent:
                            hidden_dim, self.max_action).to(device)
 
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
-                             hidden_dim).to(device)
+                             hidden_dim, self.use_kinematic_loss, self.robot_dh).to(device)
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
-                                    feature_dim, hidden_dim).to(device)
+                                    feature_dim, hidden_dim, self.use_kinematic_loss, self.robot_dh).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
@@ -299,12 +323,12 @@ class DrQV2Agent:
                     print('update critic')
                     embed()
 
-            target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
+            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, next_body)
             target_V = torch.min(target_Q1, target_Q2)
             target_Q = reward + (discount * target_V)
 
-        Q1, Q2 = self.critic(obs, action)
-        if self.use_kinematic_loss:
+        Q1, Q2 = self.critic(obs, action, body)
+        if self.use_kinematic_loss == 'loss_in_critic':
             eef_pos, target_pos = self.kinematic_fn(action, body, next_body)
             kine_loss = self.kine_weight * F.mse_loss(eef_pos, target_pos)
             critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q) + kine_loss
@@ -316,7 +340,7 @@ class DrQV2Agent:
             metrics['critic_q1'] = Q1.mean().item()
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item()
-            if self.use_kinematic_loss:
+            if self.use_kinematic_loss == 'loss_in_critic':
                 metrics['kine_loss'] = kine_loss.item()
 
         # optimize encoder and critic
@@ -328,7 +352,7 @@ class DrQV2Agent:
 
         return metrics
 
-    def update_actor(self, obs, step):
+    def update_actor(self, obs, body, step):
         metrics = dict()
 
         stddev = utils.schedule(self.stddev_schedule, step)
@@ -342,7 +366,7 @@ class DrQV2Agent:
                 embed()
 
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
-        Q1, Q2 = self.critic(obs, action)
+        Q1, Q2 = self.critic(obs, action, body)
         Q = torch.min(Q1, Q2)
 
         actor_loss = -Q.mean()
@@ -385,7 +409,7 @@ class DrQV2Agent:
             self.update_critic(obs, body, action, reward, discount, next_obs, next_body, step))
 
         # update actor
-        metrics.update(self.update_actor(obs.detach(), step))
+        metrics.update(self.update_actor(obs.detach(), body, step))
 
         # update critic target
         utils.soft_update_params(self.critic, self.critic_target,
