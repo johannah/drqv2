@@ -1,0 +1,22 @@
+defaults:
+ - medium
+ - _self_
+dataset_path:  ""
+xpos_targets: ["ball_default_site"]
+env_name: Reach
+env_override:
+ ignore_done: False
+ robots: Jaco
+ control_freq: 20
+ reward_shaping: true
+ use_object_obs: false
+ use_camera_obs: true
+ camera_names: 'frontview'
+ horizon: 100
+ camera_widths: 84
+ camera_heights: 84
+ controller_config_file: 'jaco_torque.json'
+ hard_reset: false
+
+task_name: robosuite_reach_easy
+
