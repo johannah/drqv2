@@ -18,6 +18,7 @@ np.set_printoptions(suppress=True)
 
 from copy import deepcopy
 import torch
+torch.set_num_threads(2)
 #from dmc import ExtendedTimeStepWrapper
 #import dmc
 import h5py
@@ -36,11 +37,12 @@ from collections import deque
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_shape, action_shape, max_action, robot_name, cfg):
+def make_agent(obs_shape, action_shape, max_action, action_indexes, robot_name, cfg):
     cfg.obs_shape = obs_shape
     cfg.max_action = [float(m) for m in max_action]
     cfg.action_shape = action_shape
     cfg.robot_name = robot_name
+    cfg.action_indexes = [int(ii) for ii in action_indexes]
     return hydra.utils.instantiate(cfg)
 
 
@@ -62,10 +64,10 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.setup()
-
         self.agent = make_agent(self.train_env.obs_shape,
                                 self.train_env.action_shape,
                                 self.train_env.action_spec[1],
+                                self.train_env.joint_indexes,
                                 self.train_env.robots[0].name,
                                 self.cfg.agent)
         self.timer = utils.Timer()

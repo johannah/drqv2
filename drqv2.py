@@ -180,9 +180,10 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, use_kinematic_loss, robot_dh):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, use_kinematic_loss, robot_dh, action_indexes):
         super().__init__()
 
+        self.action_indexes = action_indexes
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
@@ -208,23 +209,24 @@ class Critic(nn.Module):
 
     def kinematic_view_eef(self, joint_action, body):
         # turn relative action to abs action
-        joint_position = joint_action[:, :self.n_joints] + body[:, :self.n_joints]
+        joint_position = joint_action[:, self.action_indexes] + body[:, :self.n_joints]
         eef_rot = self.robot_dh.torch_angle2ee(joint_position)
         eef_pos = eef_rot[:,:3,3]
         return eef_pos
 
-    def kinematic_fn_torquet(self, action, body, next_body):
-       # turn relative action to abs action
-       desired_qpos = delta_joints + body[:,:self.n_joints]
-       vel_pos_error = -joint_vel
-       desired_torque = np.multiply(np.array(position_error), np.array(self.kp)) + np.multiply(vel_pos_error, self.kd)
-       # Return desired torques plus gravity compensations
-       self.torques = np.dot(self.mass_matrix, desired_torque) + self.torque_compensation
+ #   def kinematic_fn_torque(self, action, body, next_body):
+ #      # turn relative action to abs action
+ #      desired_qpos = action[:,self.action_indexes] + body[:,:self.n_joints]
 
-       eef_rot = self.robot_dh.torch_angle2ee(next_body[:,:self.n_joints])
-       eef_pos = eef_rot[:,:3,3]
-       target_pos = next_body[:,self.n_joints:self.n_joints+3]
-       return eef_pos, target_pos
+ #      vel_pos_error = -joint_vel
+ #      desired_torque = np.multiply(np.array(position_error), np.array(self.kp)) + np.multiply(vel_pos_error, self.kd)
+ #      # Return desired torques plus gravity compensations
+ #      self.torques = np.dot(self.mass_matrix, desired_torque) + self.torque_compensation
+
+ #      eef_rot = self.robot_dh.torch_angle2ee(next_body[:,:self.n_joints])
+ #      eef_pos = eef_rot[:,:3,3]
+ #      target_pos = next_body[:,self.n_joints:self.n_joints+3]
+ #      return eef_pos, target_pos
 
     def forward(self, obs, action, body):
         h = self.trunk(obs)
@@ -242,20 +244,21 @@ class DrQV2Agent:
     def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_action, robot_name="Jaco", use_kinematic_loss=0, kine_weight=1):
+                 use_tb, max_action, action_indexes, robot_name="Jaco", use_kinematic_loss=0, kine_weight=1):
+        self.action_indexes = action_indexes
         self.kine_weight = kine_weight
         self.max_action = torch.Tensor(max_action).to(device)
         self.robot_name = robot_name
         if use_kinematic_loss == 0:
             self.use_kinematic_loss = 0
         else:
-            print("using kinematic loss")
+            print("using kinematic loss", use_kinematic_loss)
             if use_kinematic_loss == 1:
                 self.use_kinematic_loss = 'loss_in_critic'
             else:
                 self.use_kinematic_loss = use_kinematic_loss
 
-        assert 0 < self.max_action.max() <= 1
+        #assert 0 < self.max_action.max() <= 1
         self.device = device
         self.robot_dh = robotDH(robot_name=self.robot_name, device=self.device)
         self.n_joints = len(self.robot_dh.npdh['DH_a'])
@@ -272,9 +275,9 @@ class DrQV2Agent:
                            hidden_dim, self.max_action).to(device)
 
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
-                             hidden_dim, self.use_kinematic_loss, self.robot_dh).to(device)
+                             hidden_dim, self.use_kinematic_loss, self.robot_dh, self.action_indexes).to(device)
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
-                                    feature_dim, hidden_dim, self.use_kinematic_loss, self.robot_dh).to(device)
+                                    feature_dim, hidden_dim, self.use_kinematic_loss, self.robot_dh, self.action_indexes).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
