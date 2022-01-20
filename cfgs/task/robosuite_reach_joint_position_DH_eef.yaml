@@ -2,7 +2,7 @@ defaults:
  - medium
  - _self_
 dataset_path:  ""
-xpos_targets: ["ball_default_site"]
+xpos_targets: ["gripper0_site"]
 env_name: Reach
 agent:
  kine_weight: 1

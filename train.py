@@ -37,21 +37,22 @@ from collections import deque
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_shape, action_shape, max_action, action_indexes, robot_name, cfg):
-    cfg.obs_shape = obs_shape
+def make_agent(img_shape, state_shape, action_shape, max_action, joint_indexes, robot_name, cfg, device):
+    cfg.img_shape = img_shape
+    cfg.state_shape = state_shape
     cfg.max_action = [float(m) for m in max_action]
     cfg.action_shape = action_shape
+    cfg.joint_indexes = [int(ii) for ii in joint_indexes]
     cfg.robot_name = robot_name
-    cfg.action_indexes = [int(ii) for ii in action_indexes]
     return hydra.utils.instantiate(cfg)
 
 
-def make_robosuite_env(task_name, xpos_targets, env_kwargs, discount, frame_stack=3, seed=1111):
+def make_robosuite_env(task_name, xpos_targets, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111):
     env = robosuite.make(
                 env_name=task_name,
                 **env_kwargs,
             )
-    env = DRQDHImageDomainRandomizationWrapper(env, xpos_targets=xpos_targets, frame_stack=frame_stack, discount=discount)
+    env = DRQDHImageDomainRandomizationWrapper(env, xpos_targets=xpos_targets, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount)
     return env
 
 
@@ -64,12 +65,16 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
         self.setup()
-        self.agent = make_agent(self.train_env.obs_shape,
+        print('start make agent')
+        self.agent = make_agent(self.train_env.img_shape,
+                                self.train_env.state_shape,
                                 self.train_env.action_shape,
                                 self.train_env.action_spec[1],
                                 self.train_env.joint_indexes,
                                 self.train_env.robots[0].name,
-                                self.cfg.agent)
+                                self.cfg.agent,
+                                self.cfg.device)
+        print('end make agent')
         self.timer = utils.Timer()
         self._global_step = 0
         self._global_episode = 0
@@ -125,38 +130,44 @@ class Workspace:
         self.train_env = make_robosuite_env(
                                             task_name=self.task_name,
                                             xpos_targets=self.xpos_targets,
+                                            use_proprio_obs=self.cfg.use_proprio_obs,
                                             env_kwargs=self.env_kwargs,
                                             discount=self.cfg.discount,
                                             frame_stack=self.cfg.frame_stack,
                                             seed=self.cfg.seed)
         self.eval_env = make_robosuite_env(
                                            task_name=self.task_name,
-                                            xpos_targets=self.xpos_targets,
+                                           xpos_targets=self.xpos_targets,
+                                           use_proprio_obs=self.cfg.use_proprio_obs,
                                            env_kwargs=self.env_kwargs,
                                            discount=self.cfg.discount,
                                            frame_stack=self.cfg.frame_stack,
                                            seed=self.cfg.seed+1)
         # create replay buffer
         self.data_specs = (
-                      specs.Array(shape=self.train_env.obs_shape, dtype=np.uint8, name='observation'),
-                      specs.Array(shape=self.train_env.body_shape, dtype=np.float32, name='body'),
-                      specs.Array(shape=self.train_env.action_shape, dtype=np.float32, name='action'),
+                      specs.Array(shape=self.train_env.img_shape, dtype=self.train_env.img_dtype, name='img_obs'),
+                      specs.Array(shape=self.train_env.state_shape, dtype=self.train_env.state_dtype, name='state_obs'),
+                      specs.Array(shape=self.train_env.body_shape, dtype=self.train_env.body_dtype, name='body'),
+                      specs.Array(shape=self.train_env.action_shape, dtype=self.train_env.action_dtype, name='action'),
                       specs.Array(shape=(1,), dtype=np.float32, name='reward'),
                       specs.Array(shape=(1,), dtype=np.float32, name='discount'))
 
+        print('setup envs')
         self.replay_storage = ReplayBufferStorage(self.data_specs,
                                                   self.work_dir / 'buffer')
         self.replay_loader = make_replay_loader(
-            self.work_dir / 'buffer', self.cfg.replay_buffer_size,
-            self.cfg.batch_size, self.cfg.replay_buffer_num_workers,
-            self.cfg.save_snapshot, self.cfg.nstep, self.cfg.discount)
+            use_specs_names=self.replay_storage.use_specs_names,
+            replay_dir=self.work_dir / 'buffer', max_size=self.cfg.replay_buffer_size,
+            batch_size=self.cfg.batch_size, num_workers=self.cfg.replay_buffer_num_workers,
+            save_snapshot=self.cfg.save_snapshot, nstep=self.cfg.nstep, discount=self.cfg.discount)
         self._replay_iter = None
+        print('setup replay')
 
         self.video_recorder = VideoRecorder(
             self.work_dir if self.cfg.save_video else None, fps=self.fps)
         self.train_video_recorder = TrainVideoRecorder(
             self.work_dir if self.cfg.save_train_video else None)
-
+        print('setup video')
 
     @property
     def global_step(self):
@@ -185,7 +196,8 @@ class Workspace:
             self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
-                    action = self.agent.act(time_step.observation,
+                    action = self.agent.act(time_step.img_obs,
+                                            time_step.state_obs,
                                             self.global_step,
                                             eval_mode=True)
                 time_step = self.eval_env.step(action)
@@ -204,6 +216,7 @@ class Workspace:
 
     def train(self):
         # predicates
+        print('until step')
         train_until_step = utils.Until(self.cfg.num_train_frames,
                                        self.cfg.action_repeat)
         seed_until_step = utils.Until(self.cfg.num_seed_frames,
@@ -212,14 +225,9 @@ class Workspace:
                                       self.cfg.action_repeat)
 
         episode_step, episode_reward = 0, 0
-        if self.cfg.dataset_path != '':
-            pass
-            #demo_episodes, demo_steps = self.load_dataset()
-            #self._global_episode += demo_episodes
-            #self._global_step += demo_steps
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
-        self.train_video_recorder.init(time_step.observation)
+        self.train_video_recorder.init(time_step.img_obs)
         metrics = None
         while train_until_step(self.global_step):
             if time_step.last():
@@ -242,8 +250,9 @@ class Workspace:
 
                 # reset env
                 time_step = self.train_env.reset()
+                print('adding replay')
                 self.replay_storage.add(time_step)
-                self.train_video_recorder.init(time_step.observation)
+                self.train_video_recorder.init(time_step.img_obs)
                 episode_step = 0
                 episode_reward = 0
 
@@ -258,7 +267,8 @@ class Workspace:
 
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
-                action = self.agent.act(time_step.observation,
+                action = self.agent.act(time_step.img_obs,
+                                        time_step.state_obs,
                                         self.global_step,
                                         eval_mode=False)
 
@@ -271,7 +281,7 @@ class Workspace:
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step)
-            self.train_video_recorder.record(time_step.observation)
+            self.train_video_recorder.record(time_step.img_obs)
             episode_step += 1
             self._global_step += 1
 
@@ -289,84 +299,23 @@ class Workspace:
         for k, v in payload.items():
             self.__dict__[k] = v
 
-
-    def load_dataset(self):
-        f = h5py.File(self.cfg.dataset_path, "r")
-        demos = list(f["data"].keys())
-        print('found {} trajectories'.format(len(demos)))
-        inds = np.argsort([int(elem[5:]) for elem in demos])
-        demos = [demos[i] for i in inds]
-        episodes = 0
-        steps = 0
-        all_time_steps = []
-        for ind in range(len(demos)):
-            ep = demos[ind]
-            time_steps, total_reward = self.playback_trajectory(f['data/{}'.format(ep)])
-            print('loaded demo {} with total reward {} and len {}'.format(ep, total_reward, len(time_steps)))
-            # add to replay buffer each step in traj
-            [self.replay_storage.add(ts) for ts in time_steps]
-            all_time_steps.extend(time_steps)
-            steps += len(time_steps)
-            episodes += 1
-
-            if ind == 0:
-                tsr = self.eval_env.reset()
-                self.video_recorder.init(self.eval_env, enabled=1)
-                for time_step in  time_steps:
-                    with torch.no_grad(), utils.eval_mode(self.agent):
-                        action = self.agent.act(time_step.observation,
-                                                self.global_step,
-                                                eval_mode=True)
-                    ts = self.eval_env.step(time_step.action)
-                    self.video_recorder.record(self.eval_env)
-
-                self.video_recorder.save(f'{self.global_frame}.mp4')
-        return episodes, steps
-
-    def playback_trajectory(self, traj_grp):
-        actions = np.array(traj_grp['actions'], dtype=np.float32)
-        rewards = np.array(traj_grp['rewards'], dtype=np.float32)
-        image_name = self.env_kwargs['camera_names']+'_image'
-        traj_len = actions.shape[0]
-        frames = deque([], maxlen=self.cfg.frame_stack)
-        for i in range(self.cfg.frame_stack):
-            first_img_dict = {}
-            first_img_dict[image_name] = traj_grp['obs/{}'.format(image_name)][0]
-            frames.append(self.train_env._get_image_obs(first_img_dict))
-        first_action = np.zeros_like(self.train_env.action_spec[0]).astype(np.float32)
-        first_obs = np.concatenate(list(frames), axis=0)
-        first_time_step = ExtendedTimeStep(step_type=dm_env.StepType.FIRST,
-                                        discount=self.cfg.discount,
-                                        reward=0.0, observation=first_obs,
-                                        action=first_action)
-        time_steps = [first_time_step]
-        total_reward = 0
-        for i in range(traj_len):
-            img_dict = {}
-            img_dict[image_name] = traj_grp['obs/{}'.format(image_name)][i]
-            frames.append(self.train_env._get_image_obs(img_dict))
-            obs = np.concatenate(list(frames), axis=0)
-            if i == traj_len-1:
-                step_type = dm_env.StepType.LAST
-            else:
-                step_type = dm_env.StepType.MID
-            time_step = ExtendedTimeStep(step_type=step_type,
-                                        discount=self.cfg.discount,
-                                        reward=rewards[i], observation=obs,
-                                        action=actions[i])
-            time_steps.append(time_step)
-            total_reward += rewards[i]
-        return time_steps, total_reward
-
 @hydra.main(config_path='cfgs', config_name='config')
 def main(cfg):
     from train import Workspace as W
     root_dir = Path.cwd()
     workspace = W(cfg)
+    print('finished workspace')
     snapshot = root_dir / 'snapshot.pt'
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
+    else:
+        store_python = os.path.join(root_dir, 'python')
+        if not os.path.exists(store_python):
+            os.makedirs(store_python)
+        cmd = 'cp *.py %s'%store_python
+        os.system(cmd)
+
     workspace.train()
 
 

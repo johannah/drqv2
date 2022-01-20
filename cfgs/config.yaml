@@ -9,8 +9,8 @@ frame_stack: 3
 action_repeat: 1
 discount: 0.99
 # train settings
-num_seed_frames: 5000
-#num_seed_frames: 600
+#num_seed_frames: 5000
+num_seed_frames: 800
 # eval
 eval_every_frames: 10000
 num_eval_episodes: 1
@@ -18,7 +18,7 @@ num_eval_episodes: 1
 save_snapshot: true
 # replay buffer
 replay_buffer_size: 500000
-replay_buffer_num_workers: 2
+replay_buffer_num_workers: 1
 nstep: 3
 batch_size: 512
 # misc
@@ -32,12 +32,15 @@ experiment: exp
 # agent
 lr: 1e-4
 feature_dim: 50
-
+image_obs: 1
+xpos_targets: []
 agent:
   _target_: drqv2.DrQV2Agent
-  obs_shape: ??? # to be specified later
+  img_shape: ??? # to be specified later
+  state_shape: ??? # to be specified later
   action_shape: ??? # to be specified later
   max_action: ??? # to be specified later
+  joint_indexes: ??? # to be specified later
   device: ${device}
   lr: ${lr}
   critic_target_tau: 0.01
@@ -48,8 +51,7 @@ agent:
   feature_dim: ${feature_dim}
   stddev_schedule: ${stddev_schedule}
   stddev_clip: 0.3
-  use_kinematic_loss: 0
-  kine_weight: 1
+  kinematic_type: "None"
   robot_name: ??? # to be specified later
 
 hydra:

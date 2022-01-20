@@ -7,96 +7,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from robosuite.utils.dh_parameters import robot_attributes
+from robosuite.utils.dh_parameters import robotDH
 from IPython import embed
 import utils
-
-
-def torch_dh_transform(theta, d, a, alpha, device):
-    bs = theta.shape[0]
-    T = torch.zeros((bs,4,4), device=device)
-    T[:,0,0] = T[:,0,0] +  torch.cos(theta)
-    T[:,0,1] = T[:,0,1] + -torch.sin(theta)*torch.cos(alpha)
-    T[:,0,2] = T[:,0,2] +  torch.sin(theta)*torch.sin(alpha)
-    T[:,0,3] = T[:,0,3] +  a*torch.cos(theta)
-    T[:,1,0] = T[:,1,0] +  torch.sin(theta)
-    T[:,1,1] = T[:,1,1] +   torch.cos(theta)*torch.cos(alpha)
-    T[:,1,2] = T[:,1,2] +   -torch.cos(theta)*torch.sin(alpha)
-    T[:,1,3] = T[:,1,3] +  a*torch.sin(theta)
-    T[:,2,1] = T[:,2,1] +  torch.sin(alpha)
-    T[:,2,2] = T[:,2,2] +   torch.cos(alpha)
-    T[:,2,3] = T[:,2,3] +  d
-    T[:,3,3] = T[:,3,3] +  1.0
-    return T
-
-def np_dh_transform(theta, d, a, alpha):
-    bs = theta.shape[0]
-    T = np.zeros((bs,4,4))
-    T[:,0,0] = T[:,0,0] +  np.cos(theta)
-    T[:,0,1] = T[:,0,1] + -np.sin(theta)*np.cos(alpha)
-    T[:,0,2] = T[:,0,2] +  np.sin(theta)*np.sin(alpha)
-    T[:,0,3] = T[:,0,3] +  a*np.cos(theta)
-    T[:,1,0] = T[:,1,0] +    np.sin(theta)
-    T[:,1,1] = T[:,1,1] +    np.cos(theta)*np.cos(alpha)
-    T[:,1,2] = T[:,1,2] +   -np.cos(theta)*np.sin(alpha)
-    T[:,1,3] = T[:,1,3] +  a*np.sin(theta)
-    T[:,2,1] = T[:,2,1] +  np.sin(alpha)
-    T[:,2,2] = T[:,2,2] +   np.cos(alpha)
-    T[:,2,3] = T[:,2,3] +  d
-    T[:,3,3] = T[:,3,3] +  1.0
-    return T
-
-
-class robotDH():
-    def __init__(self, robot_name, device='cpu'):
-        self.device = device
-        self.robot_name = robot_name
-        self.npdh = robot_attributes[self.robot_name]
-        self.base_matrix = robot_attributes[self.robot_name]['base_matrix']
-        self.t_base_matrix = torch.Tensor(robot_attributes[self.robot_name]['base_matrix']).to(self.device)
-        self.tdh = {}
-        for key, item in self.npdh.items():
-            self.tdh[key] = torch.FloatTensor(item).to(self.device)
-
-    def np_angle2ee(self, angles):
-        """
-            convert np joint angle to end effector for for ts,angles (in radians)
-        """
-        # ts, bs, feat
-        ts, fs = angles.shape
-        _T = self.base_matrix
-        for _a in range(fs):
-            _T1 = self.np_dh_transform(_a, angles[:,_a])
-            _T = np.matmul(_T, _T1)
-        return _T
-
-    def torch_angle2ee(self, angles):
-        """
-            convert joint angle to end effector for reacher for ts,bs,f
-        """
-        # ts, bs, feat
-        ts, fs = angles.shape
-        #ee_pred = torch.zeros((ts,4,4)).to(self.device)
-        _T = self.t_base_matrix
-        for _a in range(fs):
-            _T1 = self.torch_dh_transform(_a, angles[:,_a])
-            _T = torch.matmul(_T, _T1)
-        return _T
-
-    def np_dh_transform(self, dh_index, angles):
-        theta = self.npdh['DH_theta_sign'][dh_index]*angles+self.npdh['DH_theta_offset'][dh_index]
-        d = self.npdh['DH_d'][dh_index]
-        a = self.npdh['DH_a'][dh_index]
-        alpha = self.npdh['DH_alpha'][dh_index]
-        return np_dh_transform(theta, d, a, alpha)
-
-    def torch_dh_transform(self, dh_index, angles):
-        theta = self.tdh['DH_theta_sign'][dh_index]*angles+self.tdh['DH_theta_offset'][dh_index]
-        d = self.tdh['DH_d'][dh_index]
-        a = self.tdh['DH_a'][dh_index]
-        alpha = self.tdh['DH_alpha'][dh_index]
-        return torch_dh_transform(theta, d, a, alpha, self.device)
-
 
 class RandomShiftsAug(nn.Module):
     def __init__(self, pad):
@@ -133,26 +46,50 @@ class RandomShiftsAug(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, obs_shape):
+    def __init__(self, img_shape, state_shape):
         super().__init__()
 
-        assert len(obs_shape) == 3
-        self.repr_dim = 32 * 35 * 35
+        assert len(img_shape) == 3
+        self.use_state_obs = False
+        self.use_image_obs = False
 
-        self.convnet = nn.Sequential(nn.Conv2d(obs_shape[0], 32, 3, stride=2),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU())
+        self.repr_dim = 0
+        if img_shape[0] > 0:
+            self.use_image_obs = True
+            self.convnet = nn.Sequential(nn.Conv2d(img_shape[0], 32, 3, stride=2),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU())
+            self.repr_dim += 32 * 35 * 35
+        if state_shape[0] > 0:
+            self.use_state_obs = True
+            self.repr_dim += 256
+            self.mlp = nn.Sequential(nn.Linear(state_shape[0], 256),
+                          nn.ReLU(), nn.Linear(256, self.repr_dim),
+                          nn.ReLU())
 
+        self.final_mlp = nn.Linear(self.repr_dim, self.repr_dim)
         self.apply(utils.weight_init)
 
-    def forward(self, obs):
-        obs = obs / 255.0 - 0.5
-        h = self.convnet(obs)
+    def get_image(self, img_obs):
+        img_obs = img_obs / 255.0 - 0.5
+        h = self.convnet(img_obs)
         h = h.view(h.shape[0], -1)
         return h
 
+    def get_state(self, state_obs):
+        h = self.mlp(state_obs)
+        h = h.view(h.shape[0], -1)
+        return h
+
+    def forward(self, img_obs, state_obs):
+        if self.use_image_obs and self.use_state_obs:
+            return torch.cat([self.get_image(img_obs), self.get_state(state_obs)], dim=-1)
+        if self.use_image_obs:
+            return self.get_image(img_obs)
+        if self.use_state_obs:
+            return self.get_state(state_obs)
 
 class Actor(nn.Module):
     def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, max_action):
@@ -171,7 +108,6 @@ class Actor(nn.Module):
 
     def forward(self, obs, std):
         h = self.trunk(obs)
-
         mu = self.policy(h)
         mu = torch.tanh(mu)
         std = torch.ones_like(mu) * std
@@ -180,21 +116,21 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, use_kinematic_loss, robot_dh, action_indexes):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, kinematic_type, robot_dh, joint_indexes):
         super().__init__()
 
-        self.action_indexes = action_indexes
+        self.joint_indexes = joint_indexes
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
 
         self.robot_dh = robot_dh
         self.n_joints = len(self.robot_dh.npdh['DH_a'])
-        self.use_kinematic_loss = use_kinematic_loss
-        if self.use_kinematic_loss in [0,1]:
-            self.input_dim = feature_dim + action_shape[0]
-        elif self.use_kinematic_loss == 'eef':
+        self.kinematic_type = kinematic_type
+        if self.kinematic_type == 'eef':
             self.input_dim = feature_dim + action_shape[0] + 3
+        else:
+            self.input_dim = feature_dim + action_shape[0]
         self.Q1 = nn.Sequential(
             nn.Linear(self.input_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
@@ -209,14 +145,14 @@ class Critic(nn.Module):
 
     def kinematic_view_eef(self, joint_action, body):
         # turn relative action to abs action
-        joint_position = joint_action[:, self.action_indexes] + body[:, :self.n_joints]
-        eef_rot = self.robot_dh.torch_angle2ee(joint_position)
+        joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
+        eef_rot = self.robot_dh(joint_position)
         eef_pos = eef_rot[:,:3,3]
         return eef_pos
 
  #   def kinematic_fn_torque(self, action, body, next_body):
  #      # turn relative action to abs action
- #      desired_qpos = action[:,self.action_indexes] + body[:,:self.n_joints]
+ #      desired_qpos = action[:,self.joint_indexes] + body[:,:self.n_joints]
 
  #      vel_pos_error = -joint_vel
  #      desired_torque = np.multiply(np.array(position_error), np.array(self.kp)) + np.multiply(vel_pos_error, self.kd)
@@ -230,37 +166,26 @@ class Critic(nn.Module):
 
     def forward(self, obs, action, body):
         h = self.trunk(obs)
-        if self.use_kinematic_loss in [0,1]:
+        if self.kinematic_type == 'eef':
+            kine = self.kinematic_view_eef(action, body)
+            h_action = torch.cat([h, action, kine], dim=-1)
+        elif self.kinematic_type == "None":
             h_action = torch.cat([h, action], dim=-1)
-        elif self.use_kinematic_loss == 'eef':
-            kine_action = self.kinematic_view_eef(action, body)
-            h_action = torch.cat([h, action, kine_action], dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
         return q1, q2
 
 
 class DrQV2Agent:
-    def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
+    def __init__(self, img_shape, state_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_action, action_indexes, robot_name="Jaco", use_kinematic_loss=0, kine_weight=1):
-        self.action_indexes = action_indexes
-        self.kine_weight = kine_weight
+                 use_tb, max_action, joint_indexes, robot_name, kinematic_type="None"):
+        self.joint_indexes = joint_indexes
         self.max_action = torch.Tensor(max_action).to(device)
-        self.robot_name = robot_name
-        if use_kinematic_loss == 0:
-            self.use_kinematic_loss = 0
-        else:
-            print("using kinematic loss", use_kinematic_loss)
-            if use_kinematic_loss == 1:
-                self.use_kinematic_loss = 'loss_in_critic'
-            else:
-                self.use_kinematic_loss = use_kinematic_loss
-
-        #assert 0 < self.max_action.max() <= 1
+        self.robot_dh = robotDH(robot_name=robot_name, device=device)
+        self.kinematic_type = kinematic_type
         self.device = device
-        self.robot_dh = robotDH(robot_name=self.robot_name, device=self.device)
         self.n_joints = len(self.robot_dh.npdh['DH_a'])
         self.critic_target_tau = critic_target_tau
         self.update_every_steps = update_every_steps
@@ -269,32 +194,40 @@ class DrQV2Agent:
         self.stddev_schedule = stddev_schedule
         self.stddev_clip = stddev_clip
 
+        print('make an encoder')
         # models
-        self.encoder = Encoder(obs_shape).to(device)
+        self.encoder = Encoder(img_shape, state_shape).to(device)
+        print('finish encoder')
         self.actor = Actor(self.encoder.repr_dim, action_shape, feature_dim,
                            hidden_dim, self.max_action).to(device)
 
+        print('finish actor')
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
-                             hidden_dim, self.use_kinematic_loss, self.robot_dh, self.action_indexes).to(device)
+                             hidden_dim, self.kinematic_type, self.robot_dh, self.joint_indexes).to(device)
+        print('finish critic')
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
-                                    feature_dim, hidden_dim, self.use_kinematic_loss, self.robot_dh, self.action_indexes).to(device)
+                                    feature_dim, hidden_dim, self.kinematic_type, self.robot_dh, self.joint_indexes).to(device)
+        print('finish critic target')
         self.critic_target.load_state_dict(self.critic.state_dict())
+        print('made critic')
 
         # optimizers
         self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=lr)
 
+        print('made optimizers')
         # data augmentation
         self.aug = RandomShiftsAug(pad=4)
 
         self.train()
         self.critic_target.train()
+        print(' finish agent')
 
     def kinematic_fn(self, joint_action, body, next_body):
         # turn relative action to abs action
         joint_position = joint_action[:, :self.n_joints] + body[:, :self.n_joints]
-        eef_rot = self.robot_dh.torch_angle2ee(joint_position)
+        eef_rot = self.robot_dh(joint_position)
         eef_pos = eef_rot[:,:3,3]
         target_pos = next_body[:,self.n_joints:self.n_joints+3]
         return eef_pos, target_pos
@@ -305,9 +238,12 @@ class DrQV2Agent:
         self.actor.train(training)
         self.critic.train(training)
 
-    def act(self, obs, step, eval_mode):
-        obs = torch.as_tensor(obs, device=self.device)
-        obs = self.encoder(obs.unsqueeze(0))
+    def act(self, img_obs, state_obs, step, eval_mode):
+        if len(img_obs):
+            img_obs = torch.as_tensor(img_obs, device=self.device).unsqueeze(0)
+        if len(state_obs):
+            state_obs = torch.as_tensor(state_obs, device=self.device).unsqueeze(0)
+        obs = self.encoder(img_obs, state_obs)
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(obs, stddev)
         if eval_mode:
@@ -344,20 +280,13 @@ class DrQV2Agent:
             target_Q = reward + (discount * target_V)
 
         Q1, Q2 = self.critic(obs, action, body)
-        if self.use_kinematic_loss == 'loss_in_critic':
-            eef_pos, target_pos = self.kinematic_fn(action, body, next_body)
-            kine_loss = self.kine_weight * F.mse_loss(eef_pos, target_pos)
-            critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q) + kine_loss
-        else:
-            critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
+        critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
 
         if self.use_tb:
             metrics['critic_target_q'] = target_Q.mean().item()
             metrics['critic_q1'] = Q1.mean().item()
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item()
-            if self.use_kinematic_loss == 'loss_in_critic':
-                metrics['kine_loss'] = kine_loss.item()
 
         # optimize encoder and critic
         self.encoder_opt.zero_grad(set_to_none=True)
@@ -406,16 +335,17 @@ class DrQV2Agent:
             return metrics
 
         batch = next(replay_iter)
-        obs, body, action, reward, discount, next_obs, next_body = utils.to_torch(
+        img, state, body, action, reward, discount, next_img, next_state, next_body = utils.to_torch(
             batch, self.device)
 
         # augment
-        obs = self.aug(obs.float())
-        next_obs = self.aug(next_obs.float())
+        if img.shape[0]:
+            obs = self.aug(img.float())
+            next_obs = self.aug(next_img.float())
         # encode
-        obs = self.encoder(obs)
+        obs = self.encoder(img, state)
         with torch.no_grad():
-            next_obs = self.encoder(next_obs)
+            next_obs = self.encoder(next_img, next_state)
 
         if self.use_tb:
             metrics['batch_reward'] = reward.mean().item()
