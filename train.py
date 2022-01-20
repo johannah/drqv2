@@ -250,7 +250,6 @@ class Workspace:
 
                 # reset env
                 time_step = self.train_env.reset()
-                print('adding replay')
                 self.replay_storage.add(time_step)
                 self.train_video_recorder.init(time_step.img_obs)
                 episode_step = 0
