@@ -40,6 +40,7 @@ torch.backends.cudnn.benchmark = True
 def make_agent(img_shape, state_shape, action_shape, max_action, joint_indexes, robot_name, cfg, device):
     cfg.img_shape = img_shape
     cfg.state_shape = state_shape
+    print('MAKING IMAGE with IMG %s STATE %s ACTION %s'%(img_shape, state_shape, action_shape))
     cfg.max_action = [float(m) for m in max_action]
     cfg.action_shape = action_shape
     cfg.joint_indexes = [int(ii) for ii in joint_indexes]

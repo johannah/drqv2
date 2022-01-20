@@ -55,6 +55,7 @@ class Encoder(nn.Module):
 
         self.repr_dim = 0
         if img_shape[0] > 0:
+            print('making an image encoder')
             self.use_image_obs = True
             self.convnet = nn.Sequential(nn.Conv2d(img_shape[0], 32, 3, stride=2),
                                          nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
@@ -62,14 +63,17 @@ class Encoder(nn.Module):
                                          nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
                                          nn.ReLU())
             self.repr_dim += 32 * 35 * 35
+            print('repr_dim is now', self.repr_dim)
         if state_shape[0] > 0:
+            print('making a state encoder')
             self.use_state_obs = True
-            self.repr_dim += 256
-            self.mlp = nn.Sequential(nn.Linear(state_shape[0], 256),
-                          nn.ReLU(), nn.Linear(256, self.repr_dim),
+            out_size = 256
+            self.repr_dim += out_size
+            self.mlp = nn.Sequential(nn.Linear(state_shape[0], out_size),
+                          nn.ReLU(), nn.Linear(out_size, out_size),
                           nn.ReLU())
+            print('repr_dim is now', self.repr_dim)
 
-        self.final_mlp = nn.Linear(self.repr_dim, self.repr_dim)
         self.apply(utils.weight_init)
 
     def get_image(self, img_obs):
