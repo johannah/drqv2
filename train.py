@@ -156,7 +156,7 @@ class Workspace:
         self.replay_storage = ReplayBufferStorage(self.data_specs,
                                                   self.work_dir / 'buffer')
         self.replay_loader = make_replay_loader(
-            use_specs_names=self.replay_storage.use_specs_names,
+            use_specs_names=self.replay_storage._use_specs_names,
             replay_dir=self.work_dir / 'buffer', max_size=self.cfg.replay_buffer_size,
             batch_size=self.cfg.batch_size, num_workers=self.cfg.replay_buffer_num_workers,
             save_snapshot=self.cfg.save_snapshot, nstep=self.cfg.nstep, discount=self.cfg.discount)
@@ -309,12 +309,13 @@ def main(cfg):
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
-    else:
-        store_python = os.path.join(root_dir, 'python')
-        if not os.path.exists(store_python):
-            os.makedirs(store_python)
-        cmd = 'cp *.py %s'%store_python
-        os.system(cmd)
+    #else:
+    #    # THIS DOESNT WORK - __file__ is in hydra work dir
+    #    store_python = os.path.join(root_dir 'python')
+    #    if not os.path.exists(store_python):
+    #        os.makedirs(store_python)
+    #    cmd = 'cp %s %s'%(os.path.join(os.path.split(os.path.abs_path(__file__))[0], '*.py'), store_python)
+    #    os.system(cmd)
 
     workspace.train()
 
