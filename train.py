@@ -2,10 +2,13 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
+import os
+import torch
+torch.set_num_threads(2)
+cur_path = os.path.abspath(__file__)
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
-import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
@@ -17,8 +20,6 @@ import numpy as np
 np.set_printoptions(suppress=True)
 
 from copy import deepcopy
-import torch
-torch.set_num_threads(2)
 #from dmc import ExtendedTimeStepWrapper
 #import dmc
 import h5py
@@ -309,13 +310,13 @@ def main(cfg):
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
-    #else:
-    #    # THIS DOESNT WORK - __file__ is in hydra work dir
-    #    store_python = os.path.join(root_dir 'python')
-    #    if not os.path.exists(store_python):
-    #        os.makedirs(store_python)
-    #    cmd = 'cp %s %s'%(os.path.join(os.path.split(os.path.abs_path(__file__))[0], '*.py'), store_python)
-    #    os.system(cmd)
+    else:
+        # THIS DOESNT WORK - __file__ is in hydra work dir
+        store_python = os.path.join(root_dir, 'python')
+        if not os.path.exists(store_python):
+            os.makedirs(store_python)
+        cmd = 'cp %s %s'%(os.path.join(os.path.split(cur_path)[0], '*.py'), store_python)
+        os.system(cmd)
 
     workspace.train()
 
