@@ -2,6 +2,7 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
+import abc
 import datetime
 import io
 import random
@@ -38,14 +39,14 @@ class ReplayBufferStorage:
     def __init__(self, data_specs, replay_dir):
         self._data_specs = data_specs
         self._use_data_specs = []
-        self._use_specs_names = []
+        self.use_specs_names = []
         for spec in self._data_specs:
             if spec.shape[0] == 0 and spec.name == 'img_obs':
                 continue
             if spec.shape[0] == 0 and spec.name == 'state_obs':
                 continue
             self._use_data_specs.append(spec)
-            self._use_specs_names.append(spec.name)
+            self.use_specs_names.append(spec.name)
 
         self._replay_dir = replay_dir
         replay_dir.mkdir(exist_ok=True)
@@ -88,7 +89,7 @@ class ReplayBufferStorage:
         save_episode(episode, self._replay_dir / eps_fn)
 
 
-class ReplayBuffer(IterableDataset):
+class IterableReplayBuffer(IterableDataset):
     def __init__(self, use_specs_names, replay_dir, max_size, num_workers, nstep, discount,
                  fetch_every, save_snapshot):
         self._use_specs_names = use_specs_names
@@ -184,6 +185,19 @@ class ReplayBuffer(IterableDataset):
         while True:
             yield self._sample()
 
+class AbstractReplayBuffer(abc.ABC):
+   @abc.abstractmethod
+   def add(self, time_step):
+       pass
+
+   @abc.abstractmethod
+   def __next__(self, ):
+       pass
+
+   @abc.abstractmethod
+   def __len__(self, ):
+       pass
+
 
 def _worker_init_fn(worker_id):
     seed = np.random.get_state()[1][0] + worker_id
@@ -195,7 +209,7 @@ def make_replay_loader(use_specs_names, replay_dir, max_size, batch_size, num_wo
                        save_snapshot, nstep, discount):
     max_size_per_worker = max_size // max(1, num_workers)
 
-    iterable = ReplayBuffer(use_specs_names, replay_dir,
+    iterable = IterableReplayBuffer(use_specs_names, replay_dir,
                             max_size_per_worker,
                             num_workers,
                             nstep,
