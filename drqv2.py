@@ -344,8 +344,8 @@ class DrQV2Agent:
 
         # augment
         if img.shape[0]:
-            obs = self.aug(img.float())
-            next_obs = self.aug(next_img.float())
+            img = self.aug(img.float())
+            next_img = self.aug(next_img.float())
         # encode
         obs = self.encoder(img, state)
         with torch.no_grad():
