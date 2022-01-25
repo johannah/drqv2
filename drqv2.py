@@ -185,11 +185,13 @@ class Critic(nn.Module):
         if self.kinematic_type == 'eef':
             kine = self.kinematic_view_eef(action, body)
             h_action = torch.cat([h, action, kine], dim=-1)
-        if self.kinematic_type == 'rel_eef_only':
+        elif self.kinematic_type == 'abs_rel_eef_only':
             kine = self.kine_projection(self.kinematic_view_rel_eef(action, body))
             h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == "None":
             h_action = torch.cat([h, action], dim=-1)
+        else:
+            raise ValueError("unknown kinematic type: %s"%self.kinematic_type)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
         return q1, q2
@@ -271,8 +273,10 @@ class DrQV2Agent:
             action = dist.sample(clip=None)
             if step < self.num_expl_steps:
                 action.uniform_(-1.0, 1.0)
-        # scale bt min/max actions
-        scaled_action = (((action+1)*(2*self.max_action))/2.0)+-self.max_action
+        # WTF
+        # scaled_action = (((action+1)*(2*self.max_action))/2.0)+-self.max_action
+        # scale -1 to 1 bt -max to max actions
+        scaled_action = action * self.max_action
         for xc, mm in enumerate(self.max_action):
             if torch.abs(scaled_action[:,xc]).max() > mm:
                 print('update')
@@ -282,13 +286,13 @@ class DrQV2Agent:
 
     def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
-
         with torch.no_grad():
             stddev = utils.schedule(self.stddev_schedule, step)
             dist = self.actor(next_obs, stddev)
             unscaled_next_action = dist.sample(clip=self.stddev_clip)
-
-            next_action = (((unscaled_next_action+1)*(2*self.max_action))/2.0)+-self.max_action
+            # scale -1 to 1 to -max to max action
+            next_action = unscaled_next_action * self.max_action
+            #next_action = (((unscaled_next_action+1)*(2*self.max_action))/2.0)+-self.max_action
             for xc, mm in enumerate(self.max_action):
                 if torch.abs(next_action[:,xc]).max() > mm:
                     print('update critic')
@@ -323,7 +327,8 @@ class DrQV2Agent:
         dist = self.actor(obs, stddev)
         unscaled_action = dist.sample(clip=self.stddev_clip)
 
-        action = (((unscaled_action+1)*(2*self.max_action))/2.0)+-self.max_action
+        #action =(((unscaled_action+1)*(2*self.max_action))/2.0)+-self.max_action
+        action = unscaled_action * self.max_action
         for xc, mm in enumerate(self.max_action):
             if torch.abs(action[:,xc]).max() > mm:
                 print('update actor')
