@@ -23,8 +23,8 @@ rolling = 100
 
 
 for task in ['reach', 'lift', 'door', 'stack']:
-    train_paths = glob(os.path.join('exp_local*', '*', '*%s*'%task, 'train.csv'))
-    train_paths += glob(os.path.join('../drqv2/exp_local*', '*', '*%s*'%task, 'train.csv'))
+    train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
+    #train_paths += glob(os.path.join('../drqv2/exp_local*', '*', '*%s*'%task, 'train.csv'))
     train_paths = sorted(train_paths)
     print('found', len(train_paths), task)
     start = True
@@ -97,6 +97,20 @@ for task in ['reach', 'lift', 'door', 'stack']:
         fig.update_layout(height=500, width=1400)
         fig.update_traces(mode="markers+lines")
         fig.write_html('results_'+task+'.html')
+
+        img_data = data[data['use_img_obs'] == True]
+        fig = px.line(img_data, x='step', y='episode_reward_smooth', color='name', symbol='date', width=2800, height=800)
+        fig.update_layout(height=500, width=1400)
+        fig.update_traces(mode="markers+lines")
+        fig.write_html('results_'+task+'_img.html')
+
+        state_data = data[data['use_img_obs'] == False]
+        fig = px.line(img_data, x='step', y='episode_reward_smooth', color='name', symbol='date', width=2800, height=800)
+        fig.update_layout(height=500, width=1400)
+        fig.update_traces(mode="markers+lines")
+        fig.write_html('results_'+task+'_state.html')
+
+
 
 
 

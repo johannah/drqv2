@@ -133,6 +133,10 @@ class Critic(nn.Module):
         self.kinematic_type = kinematic_type
         if self.kinematic_type == 'eef':
             self.input_dim = feature_dim + action_shape[0] + 3
+        elif self.kinematic_type == 'abs_rel_eef_only':
+            self.input_dim = feature_dim * 2
+            self.kine_projection = nn.Sequential(nn.Linear(6, feature_dim),
+                                                 nn.LayerNorm(feature_dim))
         else:
             self.input_dim = feature_dim + action_shape[0]
         self.Q1 = nn.Sequential(
@@ -154,6 +158,14 @@ class Critic(nn.Module):
         eef_pos = eef_rot[:,:3,3]
         return eef_pos
 
+    def kinematic_view_rel_eef(self, joint_action, body):
+        # turn relative action to abs action
+        joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
+        next_eef_pos = self.robot_dh(joint_position)[:,:3,3]
+        current_eef_pos = self.robot_dh(body[:, :self.n_joints])[:,:3,3]
+        rel_eef_pos = next_eef_pos - current_eef_pos
+        return torch.cat([current_eef_pos, rel_eef_pos], dim=-1)
+
  #   def kinematic_fn_torque(self, action, body, next_body):
  #      # turn relative action to abs action
  #      desired_qpos = action[:,self.joint_indexes] + body[:,:self.n_joints]
@@ -173,6 +185,9 @@ class Critic(nn.Module):
         if self.kinematic_type == 'eef':
             kine = self.kinematic_view_eef(action, body)
             h_action = torch.cat([h, action, kine], dim=-1)
+        if self.kinematic_type == 'rel_eef_only':
+            kine = self.kine_projection(self.kinematic_view_rel_eef(action, body))
+            h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == "None":
             h_action = torch.cat([h, action], dim=-1)
         q1 = self.Q1(h_action)
