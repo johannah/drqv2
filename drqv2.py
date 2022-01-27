@@ -133,6 +133,10 @@ class Critic(nn.Module):
         self.kinematic_type = kinematic_type
         if self.kinematic_type == 'eef':
             self.input_dim = feature_dim + action_shape[0] + 3
+        elif self.kinematic_type == 'action_eef_only':
+            self.input_dim = feature_dim * 2
+            self.kine_projection = nn.Sequential(nn.Linear(3+action_shape[0], feature_dim),
+                                                 nn.LayerNorm(feature_dim))
         elif self.kinematic_type == 'rel_eef_only':
             self.input_dim = feature_dim * 2
             self.kine_projection = nn.Sequential(nn.Linear(3, feature_dim),
@@ -202,6 +206,9 @@ class Critic(nn.Module):
             h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == 'action_abs_rel_eef_only':
             kine = self.kine_projection(torch.cat(self.kinematic_view_rel_eef(action, body), action, dim=-1))
+            h_action = torch.cat([h, kine], dim=-1)
+        elif self.kinematic_type == 'action_eef_only':
+            kine = self.kine_projection(torch.cat(self.kinematic_view_eef(action, body), action, dim=-1))
             h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == "None":
             h_action = torch.cat([h, action], dim=-1)
