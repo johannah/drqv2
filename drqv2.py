@@ -201,8 +201,8 @@ class Critic(nn.Module):
             kine = self.kine_projection(self.kinematic_view_rel_eef(action, body))
             h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == 'action_abs_rel_eef_only':
-            kine = self.kine_projection(self.kinematic_view_rel_eef(action, body))
-            h_action = torch.cat([h, action, kine], dim=-1)
+            kine = self.kine_projection(torch.cat(self.kinematic_view_rel_eef(action, body), action, dim=-1))
+            h_action = torch.cat([h, kine], dim=-1)
         elif self.kinematic_type == "None":
             h_action = torch.cat([h, action], dim=-1)
         else:
