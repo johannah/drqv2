@@ -22,7 +22,7 @@ frames2difficulty = {1100000:'easy',  3100000:'medium', 30100000:'hard'}
 rolling = 100
 
 
-for task in ['reach', 'lift', 'door', 'stack']:
+for task in ['reach', 'lift', 'door', 'stack', 'can']:
     train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
     #train_paths += glob(os.path.join('../drqv2/exp_local*', '*', '*%s*'%task, 'train.csv'))
     train_paths = sorted(train_paths)

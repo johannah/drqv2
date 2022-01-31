@@ -1,0 +1,24 @@
+defaults:
+ - medium
+ - _self_
+dataset_path:  ""
+env_name: Lift
+use_proprio_obs: False
+agent:
+ kinematic_type: 'action_abs_rel_eef_only'
+env_override:
+ ignore_done: False
+ robots: Jaco
+ control_freq: 10
+ reward_shaping: true
+ use_object_obs: false
+ use_camera_obs: true
+ camera_names: 'frontview'
+ camera_widths: 84
+ camera_heights: 84
+ horizon: 100
+ controller_config_file: 'jaco_joint_position_10hz.json'
+ hard_reset: false
+
+task_name: robosuite_lift_easy
+
