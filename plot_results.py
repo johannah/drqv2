@@ -19,6 +19,11 @@ def load_config(yaml_path):
 
 
 frames2difficulty = {1100000:'easy',  3100000:'medium', 30100000:'hard'}
+stddev2difficulty = {'linear(1.0,0.1,100000)':'easy',
+                     'linear(1.0,0.1,500000)':'medium',
+                     'linear(1.0,0.1,1000000)':'medium-hard',
+                     'linear(1.0,0.1,2000000)':'hard',}
+
 rolling = 100
 
 
@@ -32,9 +37,8 @@ for task in ['reach', 'lift', 'door', 'stack', 'can']:
         config_path = pp.replace('train.csv', '.hydra/config.yaml')
         config_yaml = load_config(config_path)
         n_train_frames = config_yaml['num_train_frames']
-        difficulty = frames2difficulty[n_train_frames]
-        if difficulty != 'medium':
-            continue
+        stddev = config_yaml['stddev_schedule']
+        difficulty = stddev2difficulty[stddev]
         loaded = pd.read_csv(pp)
         loaded['phase'] = 'train'
         if loaded['step'].max() > 1000:
@@ -84,7 +88,7 @@ for task in ['reach', 'lift', 'door', 'stack', 'can']:
                 loaded['use_img_obs'] = int(img_obs)
                 loaded['use_object_obs'] = int(object_obs)
                 loaded['use_proprio_obs'] = int(proprio_obs)
-                loaded['name'] = env_name +  obs_type + '_KINE' + kinematic_type + controller + str(day)
+                loaded['name'] = env_name +  obs_type + '_KINE' + kinematic_type + difficulty+controller + str(day)
                 if start:
                     start = False
                     data = loaded
