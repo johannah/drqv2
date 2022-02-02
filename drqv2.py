@@ -133,11 +133,11 @@ class Critic(nn.Module):
         self.kinematic_type = kinematic_type
         if self.kinematic_type == 'eef':
             self.input_dim = feature_dim + action_shape[0] + 3
-        if self.kinematic_type == 'body':
+        elif self.kinematic_type == 'body':
             self.input_dim = feature_dim + action_shape[0] + self.n_joints
-        if self.kinematic_type == 'eef_body':
+        elif self.kinematic_type == 'eef_body':
             self.input_dim = feature_dim + action_shape[0] + 3 +  self.n_joints
-        if self.kinematic_type == 'abs_rel_body':
+        elif self.kinematic_type == 'abs_rel_body':
             self.input_dim = feature_dim + action_shape[0] + 6 +  self.n_joints
         elif self.kinematic_type == 'action_body_only':
             self.input_dim = feature_dim * 2
