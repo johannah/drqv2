@@ -135,6 +135,8 @@ class Critic(nn.Module):
             self.input_dim = feature_dim + action_shape[0] + 3
         if self.kinematic_type == 'body':
             self.input_dim = feature_dim + action_shape[0] + self.n_joints
+        if self.kinematic_type == 'eef_body':
+            self.input_dim = feature_dim + action_shape[0] + 3 +  self.n_joints
         if self.kinematic_type == 'abs_rel_body':
             self.input_dim = feature_dim + action_shape[0] + 6 +  self.n_joints
         elif self.kinematic_type == 'action_body_only':
@@ -213,6 +215,8 @@ class Critic(nn.Module):
             h_action = torch.cat([h, action, body[:,:self.n_joints]], dim=-1)
         if self.kinematic_type == 'abs_rel_body':
             h_action = torch.cat([h, action, body[:,:self.n_joints], self.kinematic_view_rel_eef(action, body)], dim=-1)
+        if self.kinematic_type == 'eef_body':
+            h_action = torch.cat([h, action, body[:,:self.n_joints], self.kinematic_view_eef(action, body)], dim=-1)
         elif self.kinematic_type == 'rel_eef_only':
             kine = self.kine_projection(self.kinematic_view_eef(action, body))
             h_action = torch.cat([h, kine], dim=-1)
