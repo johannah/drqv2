@@ -4,9 +4,8 @@ defaults:
 dataset_path:  ""
 env_name: Lift
 use_proprio_obs: False
-seed: 2
 agent:
- kinematic_type: 'action_abs_rel_eef_only'
+ kinematic_type: 'abs_rel_body'
 env_override:
  ignore_done: False
  robots: Jaco
