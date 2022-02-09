@@ -37,6 +37,16 @@ def load_episode(fn):
 class ReplayBufferStorage:
     def __init__(self, data_specs, replay_dir):
         self._data_specs = data_specs
+        self._use_data_specs = []
+        self._use_specs_names = []
+        for spec in self._data_specs:
+            if spec.shape[0] == 0 and spec.name == 'img_obs':
+                continue
+            if spec.shape[0] == 0 and spec.name == 'state_obs':
+                continue
+            self._use_data_specs.append(spec)
+            self._use_specs_names.append(spec.name)
+
         self._replay_dir = replay_dir
         replay_dir.mkdir(exist_ok=True)
         self._current_episode = defaultdict(list)
@@ -46,15 +56,15 @@ class ReplayBufferStorage:
         return self._num_transitions
 
     def add(self, time_step):
-        for spec in self._data_specs:
-            value = time_step[spec.name]
+        for spec in self._use_data_specs:
+            value = eval('time_step.%s' %spec.name)
             if np.isscalar(value):
                 value = np.full(spec.shape, value, spec.dtype)
             assert spec.shape == value.shape and spec.dtype == value.dtype
             self._current_episode[spec.name].append(value)
         if time_step.last():
             episode = dict()
-            for spec in self._data_specs:
+            for spec in self._use_data_specs:
                 value = self._current_episode[spec.name]
                 episode[spec.name] = np.array(value, spec.dtype)
             self._current_episode = defaultdict(list)
@@ -79,8 +89,9 @@ class ReplayBufferStorage:
 
 
 class ReplayBuffer(IterableDataset):
-    def __init__(self, replay_dir, max_size, num_workers, nstep, discount,
+    def __init__(self, use_specs_names, replay_dir, max_size, num_workers, nstep, discount,
                  fetch_every, save_snapshot):
+        self._use_specs_names = use_specs_names
         self._replay_dir = replay_dir
         self._size = 0
         self._max_size = max_size
@@ -148,16 +159,26 @@ class ReplayBuffer(IterableDataset):
         episode = self._sample_episode()
         # add +1 for the first dummy transition
         idx = np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1
-        obs = episode['observation'][idx - 1]
+        if 'img_obs' in self._use_specs_names:
+            img = episode['img_obs'][idx - 1]
+            next_img = episode['img_obs'][idx + self._nstep - 1]
+        else:
+            img = []; next_img = []
+        if 'state_obs' in self._use_specs_names:
+            state = episode['state_obs'][idx - 1]
+            next_state = episode['state_obs'][idx + self._nstep - 1]
+        else:
+            state = []; next_state = []
+        body = episode['body'][idx - 1]
         action = episode['action'][idx]
-        next_obs = episode['observation'][idx + self._nstep - 1]
+        next_body = episode['body'][idx + self._nstep - 1]
         reward = np.zeros_like(episode['reward'][idx])
         discount = np.ones_like(episode['discount'][idx])
         for i in range(self._nstep):
             step_reward = episode['reward'][idx + i]
             reward += discount * step_reward
             discount *= episode['discount'][idx + i] * self._discount
-        return (obs, action, reward, discount, next_obs)
+        return (img, state, body, action, reward, discount, next_img, next_state, next_body)
 
     def __iter__(self):
         while True:
@@ -170,11 +191,11 @@ def _worker_init_fn(worker_id):
     random.seed(seed)
 
 
-def make_replay_loader(replay_dir, max_size, batch_size, num_workers,
+def make_replay_loader(use_specs_names, replay_dir, max_size, batch_size, num_workers,
                        save_snapshot, nstep, discount):
     max_size_per_worker = max_size // max(1, num_workers)
 
-    iterable = ReplayBuffer(replay_dir,
+    iterable = ReplayBuffer(use_specs_names, replay_dir,
                             max_size_per_worker,
                             num_workers,
                             nstep,

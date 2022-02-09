@@ -2,6 +2,10 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
+import os
+import torch
+torch.set_num_threads(2)
+cur_path = os.path.abspath(__file__)
 import warnings
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -13,8 +17,7 @@ from pathlib import Path
 
 import hydra
 import numpy as np
-import torch
-from dm_env import specs
+np.set_printoptions(suppress=True)
 
 import dmc
 import utils
@@ -25,11 +28,28 @@ from video import TrainVideoRecorder, VideoRecorder
 torch.backends.cudnn.benchmark = True
 
 
-def make_agent(obs_spec, action_spec, cfg):
-    cfg.obs_shape = obs_spec.shape
-    cfg.action_shape = action_spec.shape
+#def make_agent(obs_spec, action_spec, cfg):
+#    cfg.obs_shape = obs_spec.shape
+#    cfg.action_shape = action_spec.shape
+#    return hydra.utils.instantiate(cfg)
+
+def make_agent(img_shape, state_shape, action_shape, max_action, joint_indexes, robot_name, cfg, device):
+    cfg.img_shape = img_shape
+    cfg.state_shape = state_shape
+    print('MAKING IMAGE with IMG %s STATE %s ACTION %s'%(img_shape, state_shape, action_shape))
+    cfg.max_action = [float(m) for m in max_action]
+    cfg.action_shape = action_shape
+    cfg.joint_indexes = [int(ii) for ii in joint_indexes]
+    cfg.robot_name = robot_name
     return hydra.utils.instantiate(cfg)
 
+def make_robosuite_env(task_name, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111):
+    env = robosuite.make(
+                env_name=task_name,
+                **env_kwargs,
+            )
+    env = DHWrapper(env, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount)
+    return env
 
 class Workspace:
     def __init__(self, cfg):
@@ -52,27 +72,79 @@ class Workspace:
         # create logger
         self.logger = Logger(self.work_dir, use_tb=self.cfg.use_tb)
         # create envs
+        if self.env_type == 'dm_control':
         self.train_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
                                   self.cfg.action_repeat, self.cfg.seed)
         self.eval_env = dmc.make(self.cfg.task_name, self.cfg.frame_stack,
                                  self.cfg.action_repeat, self.cfg.seed)
+
+        elif self.env_type == 'robosuite':
+from robosuite.controllers import load_controller_config
+from robosuite.utils import transform_utils
+from robosuite.wrappers import DRQDHImageDomainRandomizationWrapper, ExtendedTimeStep
+from typing import NamedTuple
+import robosuite
+        self.env_kwargs = {}
+            self.task_name = self.cfg.env_name
+            controller_file = self.cfg.env_override.controller_config_file
+            controller_fpath = os.path.join(
+                           os.path.split(robosuite.__file__)[0], 'controllers', 'config',
+                           controller_file)
+            assert os.path.exists(controller_fpath)
+            from robosuite.controllers import load_controller_config
+            self.env_kwargs['controller_configs'] = load_controller_config(custom_fpath=controller_fpath)
+            del self.cfg.env_override.controller_config_file
+
+        for k in self.cfg.env_override:
+            self.env_kwargs[k] = self.cfg.env_override[k]
+        self.fps = self.env_kwargs['control_freq']
+        if 'has_renderer' in self.env_kwargs:
+            del self.env_kwargs['has_renderer']
+        self.xpos_targets = self.cfg.xpos_targets
+        self.train_env = make_robosuite_env(
+                                            task_name=self.task_name,
+                                            xpos_targets=self.xpos_targets,
+                                            use_proprio_obs=self.cfg.use_proprio_obs,
+                                            env_kwargs=self.env_kwargs,
+                                            discount=self.cfg.discount,
+                                            frame_stack=self.cfg.frame_stack,
+                                            seed=self.cfg.seed)
+        self.eval_env = make_robosuite_env(
+                                           task_name=self.task_name,
+                                           xpos_targets=self.xpos_targets,
+                                           use_proprio_obs=self.cfg.use_proprio_obs,
+                                           env_kwargs=self.env_kwargs,
+                                           discount=self.cfg.discount,
+                                           frame_stack=self.cfg.frame_stack,
+                                           seed=self.cfg.seed+1)
         # create replay buffer
         data_specs = (self.train_env.observation_spec(),
                       self.train_env.action_spec(),
                       specs.Array((1,), np.float32, 'reward'),
                       specs.Array((1,), np.float32, 'discount'))
 
+self.data_specs = (
+                      specs.Array(shape=self.train_env.img_shape, dtype=self.train_env.img_dtype, name='img_obs'),
+                      specs.Array(shape=self.train_env.state_shape, dtype=self.train_env.state_dtype, name='state_obs'),
+                      specs.Array(shape=self.train_env.body_shape, dtype=self.train_env.body_dtype, name='body'),
+                      specs.Array(shape=self.train_env.action_shape, dtype=self.train_env.action_dtype, name='action'),
+                      specs.Array(shape=(1,), dtype=np.float32, name='reward'),
+                      specs.Array(shape=(1,), dtype=np.float32, name='discount'))
+
+        print('setup envs')
+
         self.replay_storage = ReplayBufferStorage(data_specs,
                                                   self.work_dir / 'buffer')
 
         self.replay_loader = make_replay_loader(
-            self.work_dir / 'buffer', self.cfg.replay_buffer_size,
-            self.cfg.batch_size, self.cfg.replay_buffer_num_workers,
-            self.cfg.save_snapshot, self.cfg.nstep, self.cfg.discount)
+            use_specs_names=self.replay_storage._use_specs_names,
+            replay_dir=self.work_dir / 'buffer', max_size=self.cfg.replay_buffer_size,
+            batch_size=self.cfg.batch_size, num_workers=self.cfg.replay_buffer_num_workers,
+            save_snapshot=self.cfg.save_snapshot, nstep=self.cfg.nstep, discount=self.cfg.discount)
         self._replay_iter = None
 
         self.video_recorder = VideoRecorder(
-            self.work_dir if self.cfg.save_video else None)
+            self.work_dir if self.cfg.save_video else None, fps=self.fps)
         self.train_video_recorder = TrainVideoRecorder(
             self.work_dir if self.cfg.save_train_video else None)
 
@@ -104,7 +176,8 @@ class Workspace:
             self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
-                    action = self.agent.act(time_step.observation,
+                    action = self.agent.act(time_step.img_obs,
+                                            time_step.state_obs,
                                             self.global_step,
                                             eval_mode=True)
                 time_step = self.eval_env.step(action)
@@ -113,7 +186,7 @@ class Workspace:
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f'{self.global_frame}.mp4')
+            self.video_recorder.save(f'{self.global_frame:0>8}.mp4')
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)
@@ -133,7 +206,7 @@ class Workspace:
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
-        self.train_video_recorder.init(time_step.observation)
+        self.train_video_recorder.init(time_step.img_obs)
         metrics = None
         while train_until_step(self.global_step):
             if time_step.last():
@@ -157,10 +230,7 @@ class Workspace:
                 # reset env
                 time_step = self.train_env.reset()
                 self.replay_storage.add(time_step)
-                self.train_video_recorder.init(time_step.observation)
-                # try to save snapshot
-                if self.cfg.save_snapshot:
-                    self.save_snapshot()
+                self.train_video_recorder.init(time_step.img_obs)
                 episode_step = 0
                 episode_reward = 0
 
@@ -169,10 +239,14 @@ class Workspace:
                 self.logger.log('eval_total_time', self.timer.total_time(),
                                 self.global_frame)
                 self.eval()
+                # try to save snapshot
+                if self.cfg.save_snapshot:
+                    self.save_snapshot()
 
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
-                action = self.agent.act(time_step.observation,
+                action = self.agent.act(time_step.img_obs,
+                                        time_step.state_obs,
                                         self.global_step,
                                         eval_mode=False)
 
@@ -185,7 +259,7 @@ class Workspace:
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step)
-            self.train_video_recorder.record(time_step.observation)
+            self.train_video_recorder.record(time_step.img_obs)
             episode_step += 1
             self._global_step += 1
 
@@ -213,6 +287,13 @@ def main(cfg):
     if snapshot.exists():
         print(f'resuming: {snapshot}')
         workspace.load_snapshot()
+    else:      
+        store_python = os.path.join(root_dir, 'python')
+        if not os.path.exists(store_python):
+            os.makedirs(store_python)
+        cmd = 'cp %s %s'%(os.path.join(os.path.split(cur_path)[0], '*.py'), store_python)
+        os.system(cmd)
+
     workspace.train()
 
 

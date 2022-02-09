@@ -46,26 +46,54 @@ class RandomShiftsAug(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self, obs_shape):
+    def __init__(self, img_shape, state_shape):
         super().__init__()
 
-        assert len(obs_shape) == 3
-        self.repr_dim = 32 * 35 * 35
+        assert len(img_shape) == 3
+        self.use_state_obs = False
+        self.use_image_obs = False
 
-        self.convnet = nn.Sequential(nn.Conv2d(obs_shape[0], 32, 3, stride=2),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
-                                     nn.ReLU())
+        self.repr_dim = 0
+        if img_shape[0] > 0:
+            print('making an image encoder')
+            self.use_image_obs = True
+            self.convnet = nn.Sequential(nn.Conv2d(img_shape[0], 32, 3, stride=2),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU(), nn.Conv2d(32, 32, 3, stride=1),
+                                         nn.ReLU())
+            self.repr_dim += 32 * 35 * 35
+            print('repr_dim is now', self.repr_dim)
+        if state_shape[0] > 0:
+            print('making a state encoder')
+            self.use_state_obs = True
+            out_size = 256
+            self.repr_dim += out_size
+            self.mlp = nn.Sequential(nn.Linear(state_shape[0], out_size),
+                          nn.ReLU(), nn.Linear(out_size, out_size),
+                          nn.ReLU())
+            print('repr_dim is now', self.repr_dim)
 
         self.apply(utils.weight_init)
 
-    def forward(self, obs):
-        obs = obs / 255.0 - 0.5
-        h = self.convnet(obs)
+    def get_image(self, img_obs):
+        img_obs = img_obs / 255.0 - 0.5
+        h = self.convnet(img_obs)
         h = h.view(h.shape[0], -1)
         return h
 
+    def get_state(self, state_obs):
+        h = self.mlp(state_obs)
+        h = h.view(h.shape[0], -1)
+        return h
+
+    def forward(self, img_obs, state_obs):
+        if self.use_image_obs and self.use_state_obs:
+            return torch.cat([self.get_image(img_obs), self.get_state(state_obs)], dim=-1)
+        if self.use_image_obs:
+            return self.get_image(img_obs)
+        if self.use_state_obs:
+            return self.get_state(state_obs)
 
 class Actor(nn.Module):
     def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim):
@@ -122,10 +150,15 @@ class Critic(nn.Module):
 
 
 class DrQV2Agent:
-    def __init__(self, obs_shape, action_shape, device, lr, feature_dim,
+    def __init__(self, img_shape, state_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
-                 update_every_steps, stddev_schedule, stddev_clip, use_tb):
+                 update_every_steps, stddev_schedule, stddev_clip,
+                 use_tb, max_action, joint_indexes, robot_name):
+        self.joint_indexes = joint_indexes
+        self.max_action = torch.Tensor(max_action).to(device)
+        self.robot_name = robot_name
         self.device = device
+        self.n_joints = len(self.joint_indexes)
         self.critic_target_tau = critic_target_tau
         self.update_every_steps = update_every_steps
         self.use_tb = use_tb
@@ -134,14 +167,15 @@ class DrQV2Agent:
         self.stddev_clip = stddev_clip
 
         # models
-        self.encoder = Encoder(obs_shape).to(device)
+        self.encoder = Encoder(img_shape, state_shape).to(device)
+        print('finish encoder')
         self.actor = Actor(self.encoder.repr_dim, action_shape, feature_dim,
                            hidden_dim).to(device)
 
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
-                             hidden_dim).to(device)
+                             hidden_dim, self.joint_indexes).to(device)
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
-                                    feature_dim, hidden_dim).to(device)
+                                    feature_dim, hidden_dim, self.joint_indexes).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
@@ -161,9 +195,12 @@ class DrQV2Agent:
         self.actor.train(training)
         self.critic.train(training)
 
-    def act(self, obs, step, eval_mode):
-        obs = torch.as_tensor(obs, device=self.device)
-        obs = self.encoder(obs.unsqueeze(0))
+    def act(self, img_obs, state_obs, step, eval_mode):
+        if len(img_obs):
+            img_obs = torch.as_tensor(img_obs, device=self.device).unsqueeze(0)
+        if len(state_obs):
+            state_obs = torch.as_tensor(state_obs, device=self.device).unsqueeze(0)
+        obs = self.encoder(img_obs, state_obs)
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(obs, stddev)
         if eval_mode:
@@ -172,20 +209,25 @@ class DrQV2Agent:
             action = dist.sample(clip=None)
             if step < self.num_expl_steps:
                 action.uniform_(-1.0, 1.0)
-        return action.cpu().numpy()[0]
 
-    def update_critic(self, obs, action, reward, discount, next_obs, step):
+        scaled_action = action * self.max_action
+        scaled_action =  scaled_action.cpu().numpy()[0]
+        return scaled_action
+
+    def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
 
         with torch.no_grad():
             stddev = utils.schedule(self.stddev_schedule, step)
             dist = self.actor(next_obs, stddev)
-            next_action = dist.sample(clip=self.stddev_clip)
-            target_Q1, target_Q2 = self.critic_target(next_obs, next_action)
+            unscaled_next_action = dist.sample(clip=self.stddev_clip)
+            # scale -1 to 1 to -max to max action
+            next_action = unscaled_next_action * self.max_action
+            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, next_body)
             target_V = torch.min(target_Q1, target_Q2)
             target_Q = reward + (discount * target_V)
 
-        Q1, Q2 = self.critic(obs, action)
+        Q1, Q2 = self.critic(obs, action, body)
         critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
 
         if self.use_tb:
@@ -203,14 +245,15 @@ class DrQV2Agent:
 
         return metrics
 
-    def update_actor(self, obs, step):
+    def update_actor(self, obs, body, step):
         metrics = dict()
 
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(obs, stddev)
-        action = dist.sample(clip=self.stddev_clip)
+        unscaled_action = dist.sample(clip=self.stddev_clip)
+        action = unscaled_action * self.max_action
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
-        Q1, Q2 = self.critic(obs, action)
+        Q1, Q2 = self.critic(obs, action, body)
         Q = torch.min(Q1, Q2)
 
         actor_loss = -Q.mean()
@@ -234,26 +277,27 @@ class DrQV2Agent:
             return metrics
 
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obs = utils.to_torch(
+        img, state, body, action, reward, discount, next_img, next_state, next_body = utils.to_torch(
             batch, self.device)
 
         # augment
-        obs = self.aug(obs.float())
-        next_obs = self.aug(next_obs.float())
+        if img.shape[0]:
+            img = self.aug(img.float())
+            next_img = self.aug(next_img.float())
         # encode
-        obs = self.encoder(obs)
+        obs = self.encoder(img, state)
         with torch.no_grad():
-            next_obs = self.encoder(next_obs)
+            next_obs = self.encoder(next_img, next_state)
 
         if self.use_tb:
             metrics['batch_reward'] = reward.mean().item()
 
         # update critic
         metrics.update(
-            self.update_critic(obs, action, reward, discount, next_obs, step))
+            self.update_critic(obs, body, action, reward, discount, next_obs, next_body, step))
 
         # update actor
-        metrics.update(self.update_actor(obs.detach(), step))
+        metrics.update(self.update_actor(obs.detach(), body, step))
 
         # update critic target
         utils.soft_update_params(self.critic, self.critic_target,
