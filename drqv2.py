@@ -7,8 +7,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import utils
+from IPython import embed
 
 
 class RandomShiftsAug(nn.Module):
@@ -152,7 +152,8 @@ class DrQV2Agent:
     def __init__(self, img_shape, state_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_actions, joint_indexes, robot_name):
+                 use_tb, max_actions, joint_indexes, robot_name, experiment_type):
+        self.experiment_type = experiment_type
         self.joint_indexes = joint_indexes
         self.max_actions = torch.Tensor(max_actions).to(device)
         self.robot_name = robot_name

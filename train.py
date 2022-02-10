@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 import os
 import torch
-from dm_env import specs
+
 torch.set_num_threads(2)
 cur_path = os.path.abspath(__file__)
 import warnings
@@ -14,7 +14,14 @@ import os
 os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
 os.environ['MUJOCO_GL'] = 'egl'
 
+from dm_env import specs
 from pathlib import Path
+from robosuite.controllers import load_controller_config
+from robosuite.utils import transform_utils
+from robosuite_wrapper import DRQWrapper
+from typing import NamedTuple
+import robosuite
+
 
 import hydra
 import numpy as np
@@ -26,6 +33,7 @@ from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
 from IPython import embed
+
 torch.backends.cudnn.benchmark = True
 
 #def make_agent(obs_spec, action_spec, cfg):
@@ -42,14 +50,6 @@ def make_agent(img_shape, state_shape, action_shape, max_actions, joint_indexes,
     cfg.joint_indexes = [int(ii) for ii in joint_indexes]
     cfg.robot_name = robot_name
     return hydra.utils.instantiate(cfg)
-
-def make_robosuite_env(task_name, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111):
-    env = robosuite.make(
-                env_name=task_name,
-                **env_kwargs,
-            )
-    env = DHWrapper(env, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount)
-    return env
 
 class Workspace:
     def __init__(self, cfg):
@@ -80,7 +80,7 @@ class Workspace:
         # create logger
         self.logger = Logger(self.work_dir, use_tb=self.cfg.use_tb)
         # create envs
-        if 'env_override' not in self.cfg.keys():
+        if 'robosuite' not in self.cfg.task_name:
             self.task_name = self.cfg.task_name
             self.train_env = dmc.make_dm(self.cfg.task_name, self.cfg.frame_stack,
                                       self.cfg.action_repeat, self.cfg.seed)
@@ -89,11 +89,14 @@ class Workspace:
 
             self.fps = 20
         else:
-            from robosuite.controllers import load_controller_config
-            from robosuite.utils import transform_utils
-            from robosuite.wrappers import DRQDHImageDomainRandomizationWrapper, ExtendedTimeStep
-            from typing import NamedTuple
-            import robosuite
+            def make_robosuite_env(task_name, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111):
+                env = robosuite.make(
+                            env_name=task_name,
+                            **env_kwargs,
+                        )
+                env = DRQWrapper(env, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount)
+                return env
+
             self.env_kwargs = {}
             self.task_name = self.cfg.env_name
             controller_file = self.cfg.env_override.controller_config_file
@@ -108,8 +111,6 @@ class Workspace:
             for k in self.cfg.env_override:
                 self.env_kwargs[k] = self.cfg.env_override[k]
             self.fps = self.env_kwargs['control_freq']
-            if 'has_renderer' in self.env_kwargs:
-                del self.env_kwargs['has_renderer']
             self.train_env = make_robosuite_env(
                                             task_name=self.task_name,
                                             use_proprio_obs=self.cfg.use_proprio_obs,
@@ -117,6 +118,7 @@ class Workspace:
                                             discount=self.cfg.discount,
                                             frame_stack=self.cfg.frame_stack,
                                             seed=self.cfg.seed)
+            self.train_env.robot_name = self.env_kwargs['robots']
             self.eval_env = make_robosuite_env(
                                            task_name=self.task_name,
                                            use_proprio_obs=self.cfg.use_proprio_obs,

@@ -1,18 +1,17 @@
 defaults:
  - medium
  - _self_
-dataset_path:  ""
 env_name: Lift
-use_proprio_obs: False 
-agent:
- kinematic_type: 'None'
+use_proprio_obs: False
 env_override:
  ignore_done: False
  robots: Jaco
  control_freq: 10
  reward_shaping: true
  use_object_obs: false
- use_camera_obs: true 
+ use_camera_obs: true
+ has_renderer: false
+ has_offscreen_renderer: true
  camera_names: 'frontview'
  camera_widths: 84
  camera_heights: 84
