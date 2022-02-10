@@ -4,19 +4,21 @@
 # LICENSE file in the root directory of this source tree.
 from collections import deque
 from typing import Any, NamedTuple
-
+from copy import deepcopy
 import dm_env
 import numpy as np
 from dm_control import manipulation, suite
 from dm_control.suite.wrappers import action_scale, pixels
 from dm_env import StepType, specs
-
+from IPython import embed
 
 class ExtendedTimeStep(NamedTuple):
     step_type: Any
     reward: Any
     discount: Any
-    observation: Any
+    img_obs: Any
+    state_obs: Any
+    body: Any
     action: Any
 
     def first(self):
@@ -161,7 +163,16 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
         if action is None:
             action_spec = self.action_spec()
             action = np.zeros(action_spec.shape, dtype=action_spec.dtype)
-        return ExtendedTimeStep(observation=time_step.observation,
+        if self.img_shape[0]:
+            state_obs = np.array([])
+            img_obs = time_step.observation
+        else:
+            img_obs = np.array([])
+            state_obs = time_step.observation
+        body = deepcopy(self.physics.data.qpos).astype(np.float32)
+        return ExtendedTimeStep(img_obs=img_obs,
+                                state_obs=state_obs,
+                                body=body,
                                 step_type=time_step.step_type,
                                 action=action,
                                 reward=time_step.reward or 0.0,
@@ -176,8 +187,7 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
     def __getattr__(self, name):
         return getattr(self._env, name)
 
-
-def make(name, frame_stack, action_repeat, seed):
+def make_dm(name, frame_stack, action_repeat, seed):
     domain, task = name.split('_', 1)
     # overwrite cup to ball_in_cup
     domain = dict(cup='ball_in_cup').get(domain, domain)
@@ -207,4 +217,17 @@ def make(name, frame_stack, action_repeat, seed):
     # stack several frames
     env = FrameStackWrapper(env, frame_stack, pixels_key)
     env = ExtendedTimeStepWrapper(env)
+    obs_spec = env.observation_spec()
+    obs_shape = obs_spec.shape
+    if len(obs_shape) == 3:
+        env.img_shape = obs_shape
+        env.state_shape = (0,)
+    else:
+        env.img_shape = (0,0,0)
+        env.state_shape = obs_shape
+    env.action_shape = env.action_spec().shape
+    env.body_shape = env.action_shape
+    env.joint_indexes = np.arange(len(env.action_shape))
+    env.robot_name = domain
+    env.max_actions = np.ones(env.action_shape, dtype=np.float32)*env.action_spec().maximum
     return env

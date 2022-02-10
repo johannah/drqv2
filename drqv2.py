@@ -122,7 +122,7 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes):
         super().__init__()
 
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
@@ -140,12 +140,11 @@ class Critic(nn.Module):
 
         self.apply(utils.weight_init)
 
-    def forward(self, obs, action):
+    def forward(self, obs, action, body):
         h = self.trunk(obs)
         h_action = torch.cat([h, action], dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
-
         return q1, q2
 
 
@@ -153,9 +152,9 @@ class DrQV2Agent:
     def __init__(self, img_shape, state_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_action, joint_indexes, robot_name):
+                 use_tb, max_actions, joint_indexes, robot_name):
         self.joint_indexes = joint_indexes
-        self.max_action = torch.Tensor(max_action).to(device)
+        self.max_actions = torch.Tensor(max_actions).to(device)
         self.robot_name = robot_name
         self.device = device
         self.n_joints = len(self.joint_indexes)
@@ -210,7 +209,7 @@ class DrQV2Agent:
             if step < self.num_expl_steps:
                 action.uniform_(-1.0, 1.0)
 
-        scaled_action = action * self.max_action
+        scaled_action = action * self.max_actions
         scaled_action =  scaled_action.cpu().numpy()[0]
         return scaled_action
 
@@ -222,7 +221,7 @@ class DrQV2Agent:
             dist = self.actor(next_obs, stddev)
             unscaled_next_action = dist.sample(clip=self.stddev_clip)
             # scale -1 to 1 to -max to max action
-            next_action = unscaled_next_action * self.max_action
+            next_action = unscaled_next_action * self.max_actions
             target_Q1, target_Q2 = self.critic_target(next_obs, next_action, next_body)
             target_V = torch.min(target_Q1, target_Q2)
             target_Q = reward + (discount * target_V)
@@ -251,7 +250,7 @@ class DrQV2Agent:
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(obs, stddev)
         unscaled_action = dist.sample(clip=self.stddev_clip)
-        action = unscaled_action * self.max_action
+        action = unscaled_action * self.max_actions
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
         Q1, Q2 = self.critic(obs, action, body)
         Q = torch.min(Q1, Q2)

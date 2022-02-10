@@ -13,7 +13,7 @@ num_seed_frames: 4000
 eval_every_frames: 10000
 num_eval_episodes: 10
 # snapshot
-save_snapshot: false
+save_snapshot: true
 # replay buffer
 replay_buffer_size: 1000000
 replay_buffer_num_workers: 4
@@ -30,11 +30,13 @@ experiment: exp
 # agent
 lr: 1e-4
 feature_dim: 50
-
 agent:
   _target_: drqv2.DrQV2Agent
-  obs_shape: ??? # to be specified later
+  img_shape: ??? # to be specified later
+  state_shape: ???
   action_shape: ??? # to be specified later
+  max_actions: ???
+  joint_indexes: ???
   device: ${device}
   lr: ${lr}
   critic_target_tau: 0.01
@@ -45,6 +47,7 @@ agent:
   feature_dim: ${feature_dim}
   stddev_schedule: ${stddev_schedule}
   stddev_clip: 0.3
+  robot_name: ???
 
 hydra:
   run:
@@ -54,7 +57,7 @@ hydra:
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
-    cpus_per_task: 10
+    cpus_per_task: 4
     gpus_per_node: 1
     tasks_per_node: 1
     mem_gb: 160
