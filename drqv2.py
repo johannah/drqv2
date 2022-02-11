@@ -150,15 +150,16 @@ class Critic(nn.Module):
 
         if self.kine_type == 'None':
             self.input_size = feature_dim + action_shape[0]
-        elif self.kine_type == 'body':
+        elif self.kine_type == 'kine_body':
             self.input_size = feature_dim + action_shape[0] + len(self.joint_indexes)
-        elif self.kine_type == 'DH':
+        elif self.kine_type == 'kine_DH':
             self.input_size = feature_dim + action_shape[0] + 16
-        elif self.kine_type == 'DH_body':
+        elif self.kine_type == 'kine_DH_body':
             self.input_size = feature_dim + action_shape[0] + 16 + len(self.joint_indexes)
         else:
             raise ValueError; 'incorrect kinematic type'
 
+        print('using kinmatic type', self.kine_type, self.input_size)
         self.Q1 = nn.Sequential(
             nn.Linear(self.input_size, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
@@ -189,12 +190,12 @@ class Critic(nn.Module):
         h = self.trunk(obs)
         if self.kine_type == 'None':
             h_action = torch.cat([h, action], dim=-1)
-        elif self.kine_type == 'body':
+        elif self.kine_type == 'kine_body':
             h_action = torch.cat([h, action, body[:,:self.joint_indexes]], dim=-1)
-        elif self.kine_type == 'DH':
+        elif self.kine_type == 'kine_DH':
             eef_pose = self.kinematic_view_eef(action, body)
             h_action = torch.cat([h, action, eef_pose], dim=-1)
-        elif self.kine_type == 'DH_body':
+        elif self.kine_type == 'kine_DH_body':
             eef_pose = self.kinematic_view_eef(action, body)
             h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
         else:
