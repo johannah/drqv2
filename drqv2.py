@@ -144,6 +144,8 @@ class Critic(nn.Module):
         super().__init__()
 
         self.robot_dh = robot_dh
+        self.joint_indexes = joint_indexes
+        self.n_joints = len(self.joint_indexes)
         self.kine_type = kine_type
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
@@ -156,6 +158,11 @@ class Critic(nn.Module):
             self.input_size = feature_dim + action_shape[0] + 16
         elif self.kine_type == 'kine_DH_body':
             self.input_size = feature_dim + action_shape[0] + 16 + len(self.joint_indexes)
+        elif self.kine_type == 'kine_DH_pos':
+            self.input_size = feature_dim + action_shape[0] + 3
+        elif self.kine_type == 'kine_DH_pos_body':
+            self.input_size = feature_dim + action_shape[0] + 3 + len(self.joint_indexes)
+
         else:
             raise ValueError; 'incorrect kinematic type'
 
@@ -172,19 +179,28 @@ class Critic(nn.Module):
 
         self.apply(utils.weight_init)
 
-    def kinematic_view_eef(self, joint_action, body):
+    def kinematic_view_eef(self, joint_action, body, return_pose=False):
         # turn relative action to abs action
         joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
         eef_rot = self.robot_dh(joint_position)
-        return eef_rot
+        if return_pose:
+            bs = eef_rot.shape[0]
+            return eef_rot.view(bs, 4*4)
+        else:
+            return eef_rot[:, :3,3]
 
-    def kinematic_view_rel_eef(self, joint_action, body):
+    def kinematic_view_rel_eef(self, joint_action, body, return_pose=False):
         # turn relative action to abs action
         joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
         next_eef = self.robot_dh(joint_position)
         current_eef = self.robot_dh(body[:, :self.n_joints])
         rel_eef = next_eef - current_eef
-        return current_eef, rel_eef
+        if return_pose:
+            return current_eef, rel_eef
+            bs = rel_eef.shape[0]
+            return current_eef.view(bs, 4*4), rel_eef.view(bs, 4*4)
+        else:
+            return current_eef[:,:3,3], rel_eef[:, :3,3]
 
     def forward(self, obs, action, body):
         h = self.trunk(obs)
@@ -193,11 +209,18 @@ class Critic(nn.Module):
         elif self.kine_type == 'kine_body':
             h_action = torch.cat([h, action, body[:,:self.joint_indexes]], dim=-1)
         elif self.kine_type == 'kine_DH':
-            eef_pose = self.kinematic_view_eef(action, body)
+            eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
             h_action = torch.cat([h, action, eef_pose], dim=-1)
         elif self.kine_type == 'kine_DH_body':
-            eef_pose = self.kinematic_view_eef(action, body)
+            eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
             h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
+        elif self.kine_type == 'kine_DH_pos':
+            eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
+            h_action = torch.cat([h, action, eef_pose], dim=-1)
+        elif self.kine_type == 'kine_DH_pos_body':
+            eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
+            h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
+
         else:
             raise ValueError; 'incorrect kinematic type'
         q1 = self.Q1(h_action)
