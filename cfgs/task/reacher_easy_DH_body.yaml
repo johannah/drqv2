@@ -4,4 +4,4 @@ defaults:
 
 task_name: reacher_easy
 agent: 
-  experiment_type: 'kine_DH'
+  experiment_type: 'kine_DH_body'

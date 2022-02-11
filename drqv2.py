@@ -233,6 +233,7 @@ class DrQV2Agent:
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
                  use_tb, max_actions, joint_indexes, robot_name, experiment_type):
+        print("FINISHED")
         self.experiment_type = experiment_type
         self.joint_indexes = joint_indexes
         self.max_actions = torch.Tensor(max_actions).to(device)
@@ -248,6 +249,7 @@ class DrQV2Agent:
         self.body_dim = len(joint_indexes)
         self.robot_dh = robotDH(robot_name, device)
         self.kine_type = 'None'
+        print('here')
         if 'kine' in experiment_type:
             self.kine_type = experiment_type
 
