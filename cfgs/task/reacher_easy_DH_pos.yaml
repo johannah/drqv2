@@ -1,0 +1,7 @@
+defaults:
+  - medium
+  - _self_
+
+task_name: reacher_easy
+agent: 
+  experiment_type: 'kine_DH_pos'
