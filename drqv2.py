@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import utils
 from IPython import embed
-
+from dh_parameters import robotDH
 
 class RandomShiftsAug(nn.Module):
     def __init__(self, pad):
@@ -96,9 +96,10 @@ class Encoder(nn.Module):
             return self.get_state(state_obs)
 
 class Actor(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim):
+    def __init__(self, repr_dim, action_shape, body_dim, feature_dim, hidden_dim):
         super().__init__()
 
+        self.body_dim = body_dim
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
@@ -106,13 +107,30 @@ class Actor(nn.Module):
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, hidden_dim),
                                     nn.ReLU(inplace=True),
-                                    nn.Linear(hidden_dim, action_shape[0]))
+                                    nn.Linear(hidden_dim, self.body_dim))
 
+#        self.control = nn.Sequential(nn.Linear(feature_dim + self.n_joints, hidden_dim),
+#                                    nn.ReLU(inplace=True),
+#                                    nn.Linear(hidden_dim, hidden_dim),
+#                                    nn.ReLU(inplace=True),
+#                                    nn.Linear(hidden_dim, self.n_joints))
+#
         self.apply(utils.weight_init)
+
+#    def run_control(self, relative_joint_pos, joint_pos, joint_vel):
+#        # torques = pos_err * kp + vel_err * kd
+#        kp = 200
+#        kd = .3
+#        desired_qpos = joint_pos + relative_joint_pos
+#        position_error = desired_qpos - joint_pos
+#        vel_pos_error = -joint_vel
+#        desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
+#        # Return desired torques plus gravity compensations
+#        #torques = np.dot(self.mass_matrix, desired_torque) + self.torque_compensation
+#        return desired_torques
 
     def forward(self, obs, std):
         h = self.trunk(obs)
-
         mu = self.policy(h)
         mu = torch.tanh(mu)
         std = torch.ones_like(mu) * std
@@ -122,27 +140,65 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None'):
         super().__init__()
 
+        self.robot_dh = robot_dh
+        self.kine_type = kine_type
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
 
+        if self.kine_type == 'None':
+            self.input_size = feature_dim + action_shape[0]
+        elif self.kine_type == 'body':
+            self.input_size = feature_dim + action_shape[0] + len(self.joint_indexes)
+        elif self.kine_type == 'DH':
+            self.input_size = feature_dim + action_shape[0] + 16
+        elif self.kine_type == 'DH_body':
+            self.input_size = feature_dim + action_shape[0] + 16 + len(self.joint_indexes)
+        else:
+            raise ValueError; 'incorrect kinematic type'
+
         self.Q1 = nn.Sequential(
-            nn.Linear(feature_dim + action_shape[0], hidden_dim),
+            nn.Linear(self.input_size, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, 1))
 
         self.Q2 = nn.Sequential(
-            nn.Linear(feature_dim + action_shape[0], hidden_dim),
+            nn.Linear(self.input_size, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, 1))
 
         self.apply(utils.weight_init)
 
+    def kinematic_view_eef(self, joint_action, body):
+        # turn relative action to abs action
+        joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
+        eef_rot = self.robot_dh(joint_position)
+        return eef_rot
+
+    def kinematic_view_rel_eef(self, joint_action, body):
+        # turn relative action to abs action
+        joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
+        next_eef = self.robot_dh(joint_position)
+        current_eef = self.robot_dh(body[:, :self.n_joints])
+        rel_eef = next_eef - current_eef
+        return current_eef, rel_eef
+
     def forward(self, obs, action, body):
         h = self.trunk(obs)
-        h_action = torch.cat([h, action], dim=-1)
+        if self.kine_type == 'None':
+            h_action = torch.cat([h, action], dim=-1)
+        elif self.kine_type == 'body':
+            h_action = torch.cat([h, action, body[:,:self.joint_indexes]], dim=-1)
+        elif self.kine_type == 'DH':
+            eef_pose = self.kinematic_view_eef(action, body)
+            h_action = torch.cat([h, action, eef_pose], dim=-1)
+        elif self.kine_type == 'DH_body':
+            eef_pose = self.kinematic_view_eef(action, body)
+            h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
+        else:
+            raise ValueError; 'incorrect kinematic type'
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
         return q1, q2
@@ -165,17 +221,26 @@ class DrQV2Agent:
         self.num_expl_steps = num_expl_steps
         self.stddev_schedule = stddev_schedule
         self.stddev_clip = stddev_clip
+        self.body_dim = len(joint_indexes)
+        self.robot_dh = robotDH(robot_name, device)
+        self.kine_type = 'None'
+        if 'kine' in experiment_type:
+            self.kine_type = experiment_type
+
 
         # models
         self.encoder = Encoder(img_shape, state_shape).to(device)
-        print('finish encoder')
-        self.actor = Actor(self.encoder.repr_dim, action_shape, feature_dim,
+
+        self.actor = Actor(self.encoder.repr_dim, action_shape, self.body_dim, feature_dim,
                            hidden_dim).to(device)
 
+
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
-                             hidden_dim, self.joint_indexes).to(device)
+                             hidden_dim, self.joint_indexes,
+                             robot_dh=self.robot_dh, kine_type=self.kine_type).to(device)
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
-                                    feature_dim, hidden_dim, self.joint_indexes).to(device)
+                                    feature_dim, hidden_dim, self.joint_indexes,
+                                    robot_dh=self.robot_dh, kine_type=self.kine_type).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
