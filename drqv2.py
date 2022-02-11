@@ -207,19 +207,19 @@ class Critic(nn.Module):
         if self.kine_type == 'None':
             h_action = torch.cat([h, action], dim=-1)
         elif self.kine_type == 'kine_body':
-            h_action = torch.cat([h, action, body[:,:self.joint_indexes]], dim=-1)
+            h_action = torch.cat([h, action, body[:,self.joint_indexes]], dim=-1)
         elif self.kine_type == 'kine_DH':
             eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
             h_action = torch.cat([h, action, eef_pose], dim=-1)
         elif self.kine_type == 'kine_DH_body':
             eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
-            h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
+            h_action = torch.cat([h, action, body[:,self.joint_indexes], eef_pose], dim=-1)
         elif self.kine_type == 'kine_DH_pos':
             eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
             h_action = torch.cat([h, action, eef_pose], dim=-1)
         elif self.kine_type == 'kine_DH_pos_body':
             eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
-            h_action = torch.cat([h, action, body[:,:self.joint_indexes], eef_pose], dim=-1)
+            h_action = torch.cat([h, action, body[:,self.joint_indexes], eef_pose], dim=-1)
 
         else:
             raise ValueError; 'incorrect kinematic type'
