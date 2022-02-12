@@ -12,6 +12,16 @@ import utils
 from IPython import embed
 from dh_parameters import robotDH
 
+def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
+    """
+    Returns torch.sqrt(torch.max(0, x))
+    but with a zero subgradient where x is 0.
+    """
+    ret = torch.zeros_like(x)
+    positive_mask = x > 0
+    ret[positive_mask] = torch.sqrt(x[positive_mask])
+    return ret
+
 def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
     """
     from: https://pytorch3d.readthedocs.io/en/latest/_modules/pytorch3d/transforms/rotation_conversions.html#matrix_to_quaternion
@@ -223,7 +233,7 @@ class Critic(nn.Module):
             self.dh_size = 3
             self.eef_type = 'pos'
         elif '_quat' in self.kine_type:
-            self.dh_size = 3
+            self.dh_size = 4
             self.eef_type = 'quat'
         else:
             self.dh_size = 16
@@ -301,9 +311,9 @@ class Critic(nn.Module):
         input_cats = [h, action]
         if self.use_body:
             input_cats.append(body[:, :self.n_joints])
-            if self.abs_eef + self.rel_eef:
-                eef = self.kinematic_view_eef(action, body)
-                input_cats.append(eef)
+        if self.abs_eef + self.rel_eef:
+            eef = self.kinematic_view_eef(action, body)
+            input_cats.append(eef)
 
         h_action = torch.cat(input_cats, dim=-1)
         q1 = self.Q1(h_action)
