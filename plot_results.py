@@ -27,7 +27,7 @@ stddev2difficulty = {'linear(1.0,0.1,100000)':'easy',
 rolling = 100
 
 
-for task in ['reacher', 'reach_']:
+for task in ['reacher', 'reach_', 'lift']:
     train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
     train_paths = sorted(train_paths)
     print('found', len(train_paths), task)
@@ -69,18 +69,20 @@ for task in ['reacher', 'reach_']:
                 img_obs = True
                 object_obs = False
                 proprio_obs = False
+            kinematic_type = "None"
             try:
                 kinematic_type = config_yaml['agent']['kinematic_type']
             except:
-                kk = 'use_kinematic_loss'
-                if kk in config_yaml['agent'].keys():
-                    kinematic_type = config_yaml['agent']['use_kinematic_loss']
-                    if kinematic_type == 1:
-                        kinematic_type = 'loss'
-                    if kinematic_type == 0:
-                        kinematic_type = 'None'
-                else:
-                    kinematic_type = 'None'
+                try:
+                    kinematic_type = config_yaml['agent']['experiment_type']
+                except:
+                    kk = 'use_kinematic_loss'
+                    if kk in config_yaml['agent'].keys():
+                        kinematic_type = config_yaml['agent']['use_kinematic_loss']
+                        if kinematic_type == 1:
+                            kinematic_type = 'loss'
+                        if kinematic_type == 0:
+                            kinematic_type = 'None'
 
             if img_obs:
                 obs_type = 'IMG'
