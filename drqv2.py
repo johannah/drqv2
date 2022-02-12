@@ -8,8 +8,65 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import utils
+
 from IPython import embed
 from dh_parameters import robotDH
+
+def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    from: https://pytorch3d.readthedocs.io/en/latest/_modules/pytorch3d/transforms/rotation_conversions.html#matrix_to_quaternion
+    Convert rotations given as rotation matrices to quaternions.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        quaternions with real part first, as tensor of shape (..., 4).
+    """
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
+
+    batch_dim = matrix.shape[:-2]
+    m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(
+        matrix.reshape(batch_dim + (9,)), dim=-1
+    )
+
+    q_abs = _sqrt_positive_part(
+        torch.stack(
+            [
+                1.0 + m00 + m11 + m22,
+                1.0 + m00 - m11 - m22,
+                1.0 - m00 + m11 - m22,
+                1.0 - m00 - m11 + m22,
+            ],
+            dim=-1,
+        )
+    )
+
+    # we produce the desired quaternion multiplied by each of r, i, j, k
+    quat_by_rijk = torch.stack(
+        [
+            torch.stack([q_abs[..., 0] ** 2, m21 - m12, m02 - m20, m10 - m01], dim=-1),
+            torch.stack([m21 - m12, q_abs[..., 1] ** 2, m10 + m01, m02 + m20], dim=-1),
+            torch.stack([m02 - m20, m10 + m01, q_abs[..., 2] ** 2, m12 + m21], dim=-1),
+            torch.stack([m10 - m01, m20 + m02, m21 + m12, q_abs[..., 3] ** 2], dim=-1),
+        ],
+        dim=-2,
+    )
+
+    # We floor here at 0.1 but the exact level is not important; if q_abs is small,
+    # the candidate won't be picked.
+    flr = torch.tensor(0.1).to(dtype=q_abs.dtype, device=q_abs.device)
+    quat_candidates = quat_by_rijk / (2.0 * q_abs[..., None].max(flr))
+
+    # if not for numerical problems, quat_candidates[i] should be same (up to a sign),
+    # forall i; we pick the best-conditioned one (with the largest denominator)
+
+    return quat_candidates[
+        F.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :  # pyre-ignore[16]
+    ].reshape(batch_dim + (4,))
+
+
 
 class RandomShiftsAug(nn.Module):
     def __init__(self, pad):
@@ -149,24 +206,50 @@ class Critic(nn.Module):
         self.kine_type = kine_type
         self.trunk = nn.Sequential(nn.Linear(repr_dim, feature_dim),
                                    nn.LayerNorm(feature_dim), nn.Tanh())
+        self.input_size = feature_dim + action_shape[0]
 
-        if self.kine_type == 'None':
-            self.input_size = feature_dim + action_shape[0]
-        elif self.kine_type == 'kine_body':
-            self.input_size = feature_dim + action_shape[0] + len(self.joint_indexes)
-        elif self.kine_type == 'kine_DH':
-            self.input_size = feature_dim + action_shape[0] + 16
-        elif self.kine_type == 'kine_DH_body':
-            self.input_size = feature_dim + action_shape[0] + 16 + len(self.joint_indexes)
-        elif self.kine_type == 'kine_DH_pos':
-            self.input_size = feature_dim + action_shape[0] + 3
-        elif self.kine_type == 'kine_DH_pos_body':
-            self.input_size = feature_dim + action_shape[0] + 3 + len(self.joint_indexes)
-
+        self.eef_type = 'None'
+        self.use_body = False
+        if 'body' in self.kine_type:
+            self.use_body = True
+            self.input_size += len(self.joint_indexes)
+        self.dh_size = 0
+        self.return_pose = False
+        self.return_quat = False
+        if '_posquat' in self.kine_type:
+            self.dh_size = 7
+            self.eef_type = 'posquat'
+        elif '_pos' in self.kine_type:
+            self.dh_size = 3
+            self.eef_type = 'pos'
+        elif '_quat' in self.kine_type:
+            self.dh_size = 3
+            self.eef_type = 'quat'
         else:
-            raise ValueError; 'incorrect kinematic type'
+            self.dh_size = 16
+            self.eef_type = 'mat'
+        print('size of dh inputs', self.dh_size)
 
-        print('using kinmatic type', self.kine_type, self.input_size)
+        self.num_dh = 0
+        # are we including relative and abs eef?
+        # TODO this isn't coherent yet
+        self.abs_eef = False
+        self.rel_eef = False
+        if 'DH' in self.kine_type:
+            if 'rel' in self.kine_type:
+                self.num_dh += 1
+                self.rel_eef = True
+            if 'abs' in self.kine_type:
+                self.abs_eef = True
+                self.num_dh += 1
+            # fall back to abs eef on
+            if not (self.abs_eef + self.rel_eef):
+                self.abs_eef = True
+                self.num_dh += 1
+
+        print('number of dh inputs', self.num_dh)
+        self.input_size += self.num_dh*self.dh_size
+        print('using kinematic type', self.kine_type, self.input_size)
         self.Q1 = nn.Sequential(
             nn.Linear(self.input_size, hidden_dim),
             nn.ReLU(inplace=True), nn.Linear(hidden_dim, hidden_dim),
@@ -179,50 +262,50 @@ class Critic(nn.Module):
 
         self.apply(utils.weight_init)
 
-    def kinematic_view_eef(self, joint_action, body, return_pose=False):
-        # turn relative action to abs action
-        joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
-        eef_rot = self.robot_dh(joint_position)
-        if return_pose:
-            bs = eef_rot.shape[0]
-            return eef_rot.view(bs, 4*4)
+    def get_eef_rep(self, matrix):
+        bs = matrix.shape[0]
+        if self.eef_type == 'mat':
+            return matrix.view(bs, 4*4)
+        elif self.eef_type == 'pos':
+            return matrix[:,:3,3]
+        elif self.eef_type == 'quat':
+            return matrix_to_quaternion(matrix[:,:3, :3])
+        elif self.eef_type == 'posquat':
+            pos =  matrix[:,:3,3]
+            quat =  matrix_to_quaternion(matrix[:,:3, :3])
+            return torch.cat([pos, quat], dim=-1)
         else:
-            return eef_rot[:, :3,3]
+            print('unable to handle')
+            embed()
+            raise ValueError; 'unable to handle %s'%self.eef_type
 
-    def kinematic_view_rel_eef(self, joint_action, body, return_pose=False):
+    def kinematic_view_eef(self, joint_action, body):
         # turn relative action to abs action
+        bs = joint_action.shape[0]
         joint_position = joint_action[:, self.joint_indexes] + body[:, :self.n_joints]
+        # next eef position in abs position
         next_eef = self.robot_dh(joint_position)
-        current_eef = self.robot_dh(body[:, :self.n_joints])
-        rel_eef = next_eef - current_eef
-        if return_pose:
-            return current_eef, rel_eef
-            bs = rel_eef.shape[0]
-            return current_eef.view(bs, 4*4), rel_eef.view(bs, 4*4)
-        else:
-            return current_eef[:,:3,3], rel_eef[:, :3,3]
+        eef_return = []
+        if self.abs_eef:
+            eef_return.append(self.get_eef_rep(next_eef))
+        if self.rel_eef:
+            current_eef = self.robot_dh(body[:, :self.n_joints])
+            # next eef position relative to current position
+            rel_eef = next_eef - current_eef
+            eef_return.append(self.get_eef_rep(rel_eef))
+        return torch.cat(eef_return, dim=-1)
+
 
     def forward(self, obs, action, body):
         h = self.trunk(obs)
-        if self.kine_type == 'None':
-            h_action = torch.cat([h, action], dim=-1)
-        elif self.kine_type == 'kine_body':
-            h_action = torch.cat([h, action, body[:,self.joint_indexes]], dim=-1)
-        elif self.kine_type == 'kine_DH':
-            eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
-            h_action = torch.cat([h, action, eef_pose], dim=-1)
-        elif self.kine_type == 'kine_DH_body':
-            eef_pose = self.kinematic_view_eef(action, body, return_pose=True)
-            h_action = torch.cat([h, action, body[:,self.joint_indexes], eef_pose], dim=-1)
-        elif self.kine_type == 'kine_DH_pos':
-            eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
-            h_action = torch.cat([h, action, eef_pose], dim=-1)
-        elif self.kine_type == 'kine_DH_pos_body':
-            eef_pose = self.kinematic_view_eef(action, body, return_pose=False)
-            h_action = torch.cat([h, action, body[:,self.joint_indexes], eef_pose], dim=-1)
+        input_cats = [h, action]
+        if self.use_body:
+            input_cats.append(body[:, :self.n_joints])
+            if self.abs_eef + self.rel_eef:
+                eef = self.kinematic_view_eef(action, body)
+                input_cats.append(eef)
 
-        else:
-            raise ValueError; 'incorrect kinematic type'
+        h_action = torch.cat(input_cats, dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
         return q1, q2
@@ -233,7 +316,6 @@ class DrQV2Agent:
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
                  use_tb, max_actions, joint_indexes, robot_name, experiment_type):
-        print("FINISHED")
         self.experiment_type = experiment_type
         self.joint_indexes = joint_indexes
         self.max_actions = torch.Tensor(max_actions).to(device)
@@ -249,7 +331,6 @@ class DrQV2Agent:
         self.body_dim = len(joint_indexes)
         self.robot_dh = robotDH(robot_name, device)
         self.kine_type = 'None'
-        print('here')
         if 'kine' in experiment_type:
             self.kine_type = experiment_type
 
