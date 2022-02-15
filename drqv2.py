@@ -162,6 +162,7 @@ class Encoder(nn.Module):
         if self.use_state_obs:
             return self.get_state(state_obs)
 
+
 class Actor(nn.Module):
     def __init__(self, repr_dim, action_shape, body_dim, feature_dim, hidden_dim):
         super().__init__()
@@ -176,35 +177,15 @@ class Actor(nn.Module):
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, self.body_dim))
 
-#        self.control = nn.Sequential(nn.Linear(feature_dim + self.n_joints, hidden_dim),
-#                                    nn.ReLU(inplace=True),
-#                                    nn.Linear(hidden_dim, hidden_dim),
-#                                    nn.ReLU(inplace=True),
-#                                    nn.Linear(hidden_dim, self.n_joints))
-#
         self.apply(utils.weight_init)
-
-#    def run_control(self, relative_joint_pos, joint_pos, joint_vel):
-#        # torques = pos_err * kp + vel_err * kd
-#        kp = 200
-#        kd = .3
-#        desired_qpos = joint_pos + relative_joint_pos
-#        position_error = desired_qpos - joint_pos
-#        vel_pos_error = -joint_vel
-#        desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
-#        # Return desired torques plus gravity compensations
-#        #torques = np.dot(self.mass_matrix, desired_torque) + self.torque_compensation
-#        return desired_torques
 
     def forward(self, obs, std):
         h = self.trunk(obs)
         mu = self.policy(h)
         mu = torch.tanh(mu)
         std = torch.ones_like(mu) * std
-
         dist = utils.TruncatedNormal(mu, std)
         return dist
-
 
 class Critic(nn.Module):
     def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None'):
@@ -257,6 +238,12 @@ class Critic(nn.Module):
                 self.abs_eef = True
                 self.num_dh += 1
 
+        self.inverse_controller = nn.Sequential(nn.Linear(feature_dim + action_shape[0] + self.n_joints*2, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, self.n_joints))
+
         print('number of dh inputs', self.num_dh)
         self.input_size += self.num_dh*self.dh_size
         print('using kinematic type', self.kine_type, self.input_size)
@@ -305,20 +292,39 @@ class Critic(nn.Module):
             eef_return.append(self.get_eef_rep(rel_eef))
         return torch.cat(eef_return, dim=-1)
 
+    #def run_control(self, relative_joint_qpos, joint_qpos, joint_qvel, num_iterations):
+    #    # num_iterations in robosuite is: int(self.control_timestep / self.model_timestep)
+    #    # torques = pos_err * kp + vel_err * kd
+    #    kp = 200
+    #    kd = .3
+    #    desired_qpos = joint_qpos + relative_joint_qpos
+    #    position_error = desired_qpos - joint_qpos
+    #    vel_pos_error = -joint_qvel
+    #    desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
+    #    # Return desired torques plus gravity compensations
+    #    torques = num_iterations*(desired_torque + self.torque_compensation)
+    #    return torques
+
+    #def forward(self, obs, action, body):
+    #    control_torques = self.run_control(action[:,:self.n_joints], body[:,:self.n_joints], body[:,self.n_joints:(2*self.n_joints)], self.num_iterations)
+    #    torques = self.controller(np.cat([obs, control_torques], dim=-1))
+    #    return torques
+
 
     def forward(self, obs, action, body):
         h = self.trunk(obs)
         input_cats = [h, action]
         if self.use_body:
             input_cats.append(body[:, :self.n_joints])
+        # estimate the relative joint position, given this action
+        relative_joint_position = self.inverse_controller(torch.cat([h, action, body[:,:(self.n_joints*2)]], dim=-1))
+        eef = self.kinematic_view_eef(relative_joint_position, body)
         if self.abs_eef + self.rel_eef:
-            eef = self.kinematic_view_eef(action, body)
             input_cats.append(eef)
-
         h_action = torch.cat(input_cats, dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
-        return q1, q2
+        return q1, q2, eef[:,:self.dh_size]
 
 
 class DrQV2Agent:
@@ -328,6 +334,7 @@ class DrQV2Agent:
                  use_tb, max_actions, joint_indexes, robot_name, experiment_type):
         self.experiment_type = experiment_type
         self.joint_indexes = joint_indexes
+        self.n_joints = len(self.joint_indexes)
         self.max_actions = torch.Tensor(max_actions).to(device)
         self.robot_name = robot_name
         self.device = device
@@ -398,26 +405,35 @@ class DrQV2Agent:
 
     def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
-
+        bs = obs.shape[0]
         with torch.no_grad():
             stddev = utils.schedule(self.stddev_schedule, step)
             dist = self.actor(next_obs, stddev)
             unscaled_next_action = dist.sample(clip=self.stddev_clip)
             # scale -1 to 1 to -max to max action
             next_action = unscaled_next_action * self.max_actions
-            target_Q1, target_Q2 = self.critic_target(next_obs, next_action, next_body)
+            target_Q1, target_Q2, _ = self.critic_target(next_obs, next_action, next_body)
             target_V = torch.min(target_Q1, target_Q2)
             target_Q = reward + (discount * target_V)
 
-        Q1, Q2 = self.critic(obs, action, body)
+        Q1, Q2, pred_next_eef = self.critic(obs, action, body)
         critic_loss = F.mse_loss(Q1, target_Q) + F.mse_loss(Q2, target_Q)
+
+        contoller_loss = 0.0
+        # train controller
+        if 'control' in  self.experiment_type:
+            no_action = torch.zeros((bs, self.n_joints)).to(self.device)
+            next_eef = self.critic.kinematic_view_eef(no_action, next_body)
+            controller_loss = F.mse_loss(pred_next_eef, next_eef)
 
         if self.use_tb:
             metrics['critic_target_q'] = target_Q.mean().item()
             metrics['critic_q1'] = Q1.mean().item()
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item()
+            metrics['controller_loss'] = controller_loss.item()
 
+        critic_loss += controller_loss
         # optimize encoder and critic
         self.encoder_opt.zero_grad(set_to_none=True)
         self.critic_opt.zero_grad(set_to_none=True)
@@ -435,7 +451,7 @@ class DrQV2Agent:
         unscaled_action = dist.sample(clip=self.stddev_clip)
         action = unscaled_action * self.max_actions
         log_prob = dist.log_prob(action).sum(-1, keepdim=True)
-        Q1, Q2 = self.critic(obs, action, body)
+        Q1, Q2, pred_next_eef = self.critic(obs, action, body)
         Q = torch.min(Q1, Q2)
 
         actor_loss = -Q.mean()

@@ -2,6 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import robosuite.utils.transform_utils as T
+from IPython import embed
 """
 DH params found by Yuying Blair Huang
 """
@@ -112,6 +113,10 @@ DH_attributes_Baxter = {
            }
 
 DH_attributes_dm_reacher = {
+    'eef':['finger'],
+    'target':['target'],
+    'root':'root',
+    'joint_names': ['shoulder', 'wrist'],
     'base_matrix':np.array([[1.  , 0.  , 0.  , 0.  ],
                             [0.  , -1.  , 0.  , 0.  ],
                             [0.  , 0.  , -1.  , 0.],
@@ -121,6 +126,30 @@ DH_attributes_dm_reacher = {
      'DH_theta_sign':[1.0,1.0],
      'DH_theta_offset':[0,0],
      'DH_d':[0,0]}
+
+DH_attributes_dm_manipulator = {
+    'eef':['hand'],
+    'target':['target_ball'],
+    'root':'arm_root',
+    'joint_names': ['arm_root', 'arm_shoulder', 'arm_elbow', 'arm_wrist',
+               ],
+    # x is flipped
+    # this is with rotation of z, -90
+    #'base_matrix': np.array([[0,1,0,0],
+    #                         [1,0,0,0],
+    #                         [0,0,-1,0],
+    #                         [0,0,0,1]]),
+    'base_matrix': np.array([[1,0,0,0],
+                             [0,-1,0,0],
+                             [0,0,-1,0],
+                             [0,0,0,1]]),
+     'DH_a':[0.18,0.15,0.12,0.03],
+     'DH_alpha':[0.0,0.0,0.0,0.0],
+     'DH_theta_sign':[1.0,1.0,1.0,1.0],
+     'DH_theta_offset':[0,0,0,0],
+     'DH_d':[0,0,0,0]}
+
+
 
 DH_attributes_dm_reacher_long_wrist = {
      'DH_a':[0.12,0.22],
@@ -140,6 +169,7 @@ DH_attributes_dm_reacher_double = {
 
 
 robot_attributes = {
+                    'manipulator':DH_attributes_dm_manipulator,
                     'reacher':DH_attributes_dm_reacher,
                     'reacher_long_wrist':DH_attributes_dm_reacher_long_wrist,
                     'reacher_double':DH_attributes_dm_reacher_double,
@@ -182,6 +212,36 @@ def np_dh_transform(theta, d, a, alpha):
     T[:,3,3] = T[:,3,3] +  1.0
     return T
 
+"""
+build_rotation_matrix(0,0,0,in_degrees=True)
+Out[12]:
+array([[ 1.,  0.,  0.,  0.],
+       [ 0.,  1.,  0.,  0.],
+       [-0.,  0.,  1.,  0.],
+       [ 0.,  0.,  0.,  1.]])
+
+np.round(build_rotation_matrix(0,90,0,in_degr
+    ...: ees=True),2)
+array([[ 0.,  0.,  1.,  0.],
+       [ 0.,  1.,  1.,  0.],
+       [-1.,  0.,  0.,  0.],
+       [ 0.,  0.,  0.,  1.]])
+"""
+def build_rotation_matrix(rotx, roty, rotz, in_degrees=False):
+    # https://en.wikipedia.org/wiki/Rotation_matrix
+    if in_degrees:
+        rotx = np.deg2rad(rotx)
+        roty = np.deg2rad(roty)
+        rotz = np.deg2rad(rotz)
+    y = rotz
+    a = rotx
+    B = roty
+    matrix = np.array([
+        [np.cos(B)*np.cos(y), np.sin(a)*np.sin(B)*np.cos(y)-np.cos(a)*np.sin(y), np.cos(a)*np.sin(B)*np.cos(y) + np.sin(a)*np.sin(y), 0.0],
+        [np.cos(B)*np.sin(y), np.sin(a)*np.sin(B)*np.sin(y)+np.cos(a)*np.cos(y), np.cos(a)*np.sin(B)*np.cos(y) - np.sin(a)*np.sin(y), 0.0],
+        [-np.sin(B), np.sin(a)*np.cos(B), np.cos(a)*np.cos(B), 0.0],
+        [0.  , 0.  , 0.  , 1.  ]])
+    return matrix
 
 class robotDH(nn.Module):
     def __init__(self, robot_name, device):
@@ -192,8 +252,12 @@ class robotDH(nn.Module):
         self.base_matrix = robot_attributes[self.robot_name]['base_matrix']
         self.t_base_matrix = torch.Tensor(robot_attributes[self.robot_name]['base_matrix']).to(device)
         self.tdh = {}
+        self.keys = {}
         for key, item in self.npdh.items():
-            self.tdh[key] = torch.FloatTensor(item).to(device)
+            if key in ['root', 'target', 'eef', 'joint_names']:
+                self.keys[key] = item
+            else:
+                self.tdh[key] = torch.FloatTensor(item).to(device)
 
     def np_angle2ee(self, angles):
         """

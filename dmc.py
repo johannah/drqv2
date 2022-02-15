@@ -247,6 +247,7 @@ def make_dm(name, frame_stack, action_repeat, seed, use_joint_position=False):
     # add wrappers
     env = ActionDTypeWrapper(env, np.float32)
     if use_joint_position:
+        print('using DM-control joint position controller')
         env = ActionControlWrapper(env, action_repeat)
     else:
         env = ActionRepeatWrapper(env, action_repeat)

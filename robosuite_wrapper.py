@@ -285,9 +285,9 @@ class DRQWrapper(Wrapper):
 
     def make_body(self):
         # TODO only works with single robot
-        r = self.env.robots[0]
-        # include joint qpos
-        bxqs = deepcopy(r._joint_positions)
+        r =  self.env.robots[0]
+        # include joint qpos and qvel
+        bxqs = np.hstack((bxqs, deepcopy(r._joint_positions), deepcopy(r._joint_velocities)))
         return bxqs.astype(np.float32)
 
     def compute_reward(self, achieved_goal, desired_goal, info):

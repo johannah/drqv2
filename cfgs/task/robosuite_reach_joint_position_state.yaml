@@ -1,0 +1,23 @@
+defaults:
+ - medium
+ - _self_
+env_name: Reach
+use_proprio_obs: True
+env_override:
+ ignore_done: False
+ robots: Jaco
+ control_freq: 10
+ reward_shaping: True
+ use_object_obs: True
+ use_camera_obs: False 
+ has_renderer: False
+ has_offscreen_renderer: True
+ camera_names: 'frontview'
+ camera_widths: 84
+ camera_heights: 84
+ horizon: 100
+ controller_config_file: 'jaco_joint_position_10hz.json'
+ hard_reset: false
+
+task_name: robosuite_reach_easy
+
