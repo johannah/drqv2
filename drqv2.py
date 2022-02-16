@@ -277,6 +277,19 @@ class Critic(nn.Module):
                                     nn.Linear(hidden_dim, hidden_dim),
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, self.n_joints))
+        if 'blind' in self.kine_type:
+            self.joint_position_estimator = nn.Sequential(nn.Linear(feature_dim+self.n_joints, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, self.n_joints))
+            self.joint_velocity_estimator = nn.Sequential(nn.Linear(feature_dim+self.n_joints, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, hidden_dim),
+                                    nn.ReLU(inplace=True),
+                                    nn.Linear(hidden_dim, self.n_joints))
+
+
         print('using controller', self.controller_input_size)
 
     def run_inverse_controller(self, h, action, joint_position, joint_velocity):
@@ -287,14 +300,24 @@ class Critic(nn.Module):
         if self.controller_input_size == 0:
             return torques
         else:
-            input_data = [h, torques, joint_position, joint_velocity]
+            if 'blind' in self.kine_type:
+                # pretend we know nothing about the body - predict position and
+                # velocity
+                raw_input_data = [h, torques]
+                joint_position = torch.tanh(self.joint_position_estimator(torch.cat(raw_input_data, dim=-1)))*np.pi
+                joint_velocity = torch.tanh(self.joint_velocity_estimator(torch.cat(raw_input_data, dim=-1)))*5
             if 'structured' in self.kine_type:
                 kp = 200; kd = 0.3
                 joint_diff = (self.controller_iterations/kp) * (torques -  torch.multiply(-joint_velocity, kd))
-                input_data.append(joint_diff)
-            # tanh to max rel pos diff is -1, 1
-            relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
-            return relative_joint_position
+                input_data = [h, torques, joint_position, joint_velocity, joint_diff]
+                # tanh to max rel pos diff is -1, 1
+                relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
+                return relative_joint_position
+            else:
+                # tanh to max rel pos diff is -1, 1
+                input_data = [h, torques, joint_position, joint_velocity]
+                relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
+                return relative_joint_position
 
     def get_eef_rep(self, matrix):
         bs = matrix.shape[0]
@@ -413,7 +436,7 @@ class DrQV2Agent:
         self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=lr)
-        if self.critic.controller_input_size:
+        if self.critic.controller_input_size and 'blind' not in self.experiment_type:
             self.controller_opt = torch.optim.Adam(self.critic.inverse_controller.parameters(), lr=lr)
 
         # data augmentation
@@ -465,7 +488,7 @@ class DrQV2Agent:
 
         controller_loss = 0.0
         # train controller
-        if self.critic.controller_input_size:
+        if self.critic.controller_input_size and 'blind' not in self.experiment_type:
             no_action = torch.zeros((bs, self.n_joints)).to(self.device)
             next_eef = self.critic.kinematic_view_eef(no_action, next_body[:,:self.n_joints])
             controller_loss = F.mse_loss(pred_next_eef, next_eef)
@@ -484,7 +507,7 @@ class DrQV2Agent:
         critic_loss.backward()
         self.critic_opt.step()
         self.encoder_opt.step()
-        if self.critic.controller_input_size:
+        if self.critic.controller_input_size and 'blind' not in self.experiment_type:
             self.controller_opt.step()
 
         return metrics

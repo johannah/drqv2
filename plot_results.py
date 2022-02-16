@@ -29,6 +29,7 @@ rolling = 100
 
 for task in ['reacher', 'reach_', 'lift']:
     train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
+    train_paths += glob(os.path.join('../../drqv2_state/exp_local', '2022*', '*%s*'%task, 'train.csv'))
     train_paths = sorted(train_paths)
     print('found', len(train_paths), task)
     start = True
