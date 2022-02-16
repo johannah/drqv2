@@ -269,8 +269,10 @@ class Critic(nn.Module):
 
         self.controller_input_size = 0
         if 'controller' in self.kine_type:
+            print('using controller')
             self.controller_input_size = feature_dim + self.n_joints + self.n_joints*2
             if 'structured' in self.kine_type:
+                print('using structured controller')
                 self.controller_input_size += self.n_joints
             self.inverse_controller = nn.Sequential(nn.Linear(self.controller_input_size, hidden_dim),
                                     nn.ReLU(inplace=True),
@@ -278,6 +280,7 @@ class Critic(nn.Module):
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, self.n_joints))
         if 'blind' in self.kine_type:
+            print('setting up blind joint position/velocity estimators')
             self.joint_position_estimator = nn.Sequential(nn.Linear(feature_dim+self.n_joints, hidden_dim),
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, hidden_dim),
