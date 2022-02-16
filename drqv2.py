@@ -175,7 +175,7 @@ class Actor(nn.Module):
                                     nn.ReLU(inplace=True),
                                     nn.Linear(hidden_dim, hidden_dim),
                                     nn.ReLU(inplace=True),
-                                    nn.Linear(hidden_dim, self.body_dim))
+                                    nn.Linear(hidden_dim, action_shape[0]))
 
         self.apply(utils.weight_init)
 
@@ -269,7 +269,7 @@ class Critic(nn.Module):
 
         self.controller_input_size = 0
         if 'controller' in self.kine_type:
-            self.controller_input_size = feature_dim + action_shape[0] + self.n_joints*2
+            self.controller_input_size = feature_dim + self.n_joints + self.n_joints*2
             if 'structured' in self.kine_type:
                 self.controller_input_size += self.n_joints
             self.inverse_controller = nn.Sequential(nn.Linear(self.controller_input_size, hidden_dim),
@@ -279,10 +279,11 @@ class Critic(nn.Module):
                                     nn.Linear(hidden_dim, self.n_joints))
         print('using controller', self.controller_input_size)
 
-    def run_inverse_controller(self, h, torques, joint_position, joint_velocity):
+    def run_inverse_controller(self, h, action, joint_position, joint_velocity):
         # desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
         # torques = je*kp + jv*kd
         # (n/kp)(torques - (jv*kd)) = je
+        torques = action[:,:self.n_joints]
         if self.controller_input_size == 0:
             return torques
         else:
@@ -293,9 +294,6 @@ class Critic(nn.Module):
                 input_data.append(joint_diff)
             # tanh to max rel pos diff is -1, 1
             relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
-            if torch.isnan(relative_joint_position.min()):
-                print('joint diff')
-                embed()
             return relative_joint_position
 
     def get_eef_rep(self, matrix):

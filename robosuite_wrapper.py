@@ -174,13 +174,15 @@ class DRQWrapper(Wrapper):
         # n_joints
        # damping_ratio, kp, action
         self.n_joints = len(self.env.robots[0].controller.qpos_index)
-        if self.env.robots[0].controller.impedance_mode == 'fixed':
+        try:
+            if self.env.robots[0].controller.impedance_mode == 'fixed':
+                self.joint_indexes = np.arange(self.n_joints).astype(np.int)
+            elif self.env.robots[0].controller.impedance_mode == 'variable':
+                self.joint_indexes = np.arange(self.n_joints*2, self.n_joints*3).astype(np.int)
+            elif self.env.robots[0].controller.impedance_mode == 'variable':
+                self.joint_indexes = np.arange(self.n_joints, self.n_joints*2).astype(np.int)
+        except:
             self.joint_indexes = np.arange(self.n_joints).astype(np.int)
-        elif self.env.robots[0].controller.impedance_mode == 'variable':
-            self.joint_indexes = np.arange(self.n_joints*2, self.n_joints*3).astype(np.int)
-        elif self.env.robots[0].controller.impedance_mode == 'variable':
-            self.joint_indexes = np.arange(self.n_joints, self.n_joints*2).astype(np.int)
-
 
         if self.randomize_color:
             self.tex_modder = TextureModder(sim=self.env.sim,
@@ -288,7 +290,7 @@ class DRQWrapper(Wrapper):
         # TODO only works with single robot
         r =  self.env.robots[0]
         # include joint qpos and qvel
-        bxqs = np.hstack((bxqs, deepcopy(r._joint_positions), deepcopy(r._joint_velocities)))
+        bxqs = np.hstack((deepcopy(r._joint_positions), deepcopy(r._joint_velocities)))
         return bxqs.astype(np.float32)
 
     def compute_reward(self, achieved_goal, desired_goal, info):
