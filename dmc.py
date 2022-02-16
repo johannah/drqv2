@@ -10,6 +10,7 @@ import numpy as np
 from dm_control import manipulation, suite
 from dm_control.suite.wrappers import action_scale, pixels
 from dm_env import StepType, specs
+from dh_parameters import robot_attributes
 from IPython import embed
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -35,46 +36,46 @@ class ExtendedTimeStep(NamedTuple):
     def __getitem__(self, attr):
         return getattr(self, attr)
 
-class ActionControlWrapper(dm_env.Environment):
-    def __init__(self, env, num_repeats):
-        self._env = env
-        self._num_repeats = num_repeats
-        self.kd = .3
-        self.kp = 200
-
-    def step(self, action):
-        reward = 0.0
-        discount = 1.0
-
-        self.qpos = self.physics.position()
-        self.qvel = self.physics.velocity()
-        desired_qpos = deepcopy(self.qpos + action)
-        for i in range(self._num_repeats):
-            position_error = desired_qpos - self.qpos
-            vel_pos_error = -self.qvel
-            desired_torques = np.multiply(position_error, self.kp) + np.multiply(vel_pos_error, self.kd)
-            time_step = self._env.step(desired_torques)
-            reward += (time_step.reward or 0.0) * discount
-            discount *= time_step.discount
-            self.qpos = self.physics.position()
-            self.qvel = self.physics.velocity()
-            if time_step.last():
-                break
-
-        return time_step._replace(reward=reward, discount=discount)
-
-    def observation_spec(self):
-        return self._env.observation_spec()
-
-    def action_spec(self):
-        return self._env.action_spec()
-
-    def reset(self):
-        return self._env.reset()
-
-    def __getattr__(self, name):
-        return getattr(self._env, name)
-
+#class ActionControlWrapper(dm_env.Environment):
+#    def __init__(self, env, num_repeats):
+#        self._env = env
+#        self._num_repeats = num_repeats
+#        self.kd = .3
+#        self.kp = 200
+#
+#    def step(self, action):
+#        reward = 0.0
+#        discount = 1.0
+#
+#        self.qpos = self.physics.position()
+#        self.qvel = self.physics.velocity()
+#        desired_qpos = deepcopy(self.qpos + action)
+#        for i in range(self._num_repeats):
+#            position_error = desired_qpos - self.qpos
+#            vel_pos_error = -self.qvel
+#            desired_torques = np.multiply(position_error, self.kp) + np.multiply(vel_pos_error, self.kd)
+#            time_step = self._env.step(desired_torques)
+#            reward += (time_step.reward or 0.0) * discount
+#            discount *= time_step.discount
+#            self.qpos = self.physics.position()
+#            self.qvel = self.physics.velocity()
+#            if time_step.last():
+#                break
+#
+#        return time_step._replace(reward=reward, discount=discount)
+#
+#    def observation_spec(self):
+#        return self._env.observation_spec()
+#
+#    def action_spec(self):
+#        return self._env.action_spec()
+#
+#    def reset(self):
+#        return self._env.reset()
+#
+#    def __getattr__(self, name):
+#        return getattr(self._env, name)
+#
 
 class ActionRepeatWrapper(dm_env.Environment):
     def __init__(self, env, num_repeats):
@@ -190,7 +191,8 @@ class ActionDTypeWrapper(dm_env.Environment):
 
 
 class ExtendedTimeStepWrapper(dm_env.Environment):
-    def __init__(self, env):
+    def __init__(self, env, joint_names):
+        self.joint_names = joint_names
         self._env = env
 
     def reset(self):
@@ -211,7 +213,9 @@ class ExtendedTimeStepWrapper(dm_env.Environment):
         else:
             img_obs = np.array([])
             state_obs = time_step.observation
-        body = np.concatenate((self.physics.position(), self.physics.velocity()), 0).astype(np.float32)
+        qpos =  self._env.physics.named.data.qpos[self.joint_names]
+        qvel =  self._env.physics.named.data.qvel[self.joint_names]
+        body = np.concatenate((qpos, qvel), 0).astype(np.float32)
         return ExtendedTimeStep(img_obs=img_obs,
                                 state_obs=state_obs,
                                 body=body,
@@ -233,6 +237,7 @@ def make_dm(name, frame_stack, action_repeat, seed, use_joint_position=False):
     domain, task = name.split('_', 1)
     # overwrite cup to ball_in_cup
     domain = dict(cup='ball_in_cup').get(domain, domain)
+    print('running', domain, task)
     # make sure reward is not visualized
     if (domain, task) in suite.ALL_TASKS:
         env = suite.load(domain,
@@ -261,8 +266,9 @@ def make_dm(name, frame_stack, action_repeat, seed, use_joint_position=False):
                              pixels_only=True,
                              render_kwargs=render_kwargs)
     # stack several frames
+    rattributes = robot_attributes[domain]
     env = FrameStackWrapper(env, frame_stack, pixels_key)
-    env = ExtendedTimeStepWrapper(env)
+    env = ExtendedTimeStepWrapper(env, rattributes['joint_names'])
     obs_spec = env.observation_spec()
     obs_shape = obs_spec.shape
     if len(obs_shape) == 3:
@@ -271,9 +277,10 @@ def make_dm(name, frame_stack, action_repeat, seed, use_joint_position=False):
     else:
         env.img_shape = (0,0,0)
         env.state_shape = obs_shape
+    ts = env.reset()
     env.action_shape = env.action_spec().shape
-    env.body_shape = env.physics.position().shape
-    env.joint_indexes = np.arange(env.action_shape[0])
+    env.body_shape = (len(env.joint_names)*2,)
+    env.joint_indexes = np.arange(len(env.joint_names))
     env.robot_name = domain
     env.controller_iterations = action_repeat
     env.max_actions = np.ones(env.action_shape, dtype=np.float32)*env.action_spec().maximum
