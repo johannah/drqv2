@@ -188,10 +188,10 @@ class Actor(nn.Module):
         return dist
 
 #class Controller(nn.Module):
-#    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None', control_iterations=1):
+#    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None', controller_iterations=1):
 #        super().__init__()
 #
-#        self.control_iterations = control_iterations
+#        self.controller_iterations = control_iterations
 #        self.robot_dh = robot_dh
 #        self.joint_indexes = joint_indexes
 #        self.n_joints = len(self.joint_indexes)
@@ -202,10 +202,10 @@ class Actor(nn.Module):
 
 
 class Critic(nn.Module):
-    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None', control_iterations=1):
+    def __init__(self, repr_dim, action_shape, feature_dim, hidden_dim, joint_indexes, robot_dh, kine_type='None', controller_iterations=1):
         super().__init__()
 
-        self.control_iterations = control_iterations
+        self.controller_iterations = controller_iterations
         self.robot_dh = robot_dh
         self.joint_indexes = joint_indexes
         self.n_joints = len(self.joint_indexes)
@@ -289,7 +289,7 @@ class Critic(nn.Module):
             input_data = [h, torques, joint_position, joint_velocity]
             if 'structured' in self.kine_type:
                 kp = 200; kd = 0.3
-                joint_diff = (self.control_iterations/kp) * (torques -  torch.multiply(-joint_velocity, kd))
+                joint_diff = (self.controller_iterations/kp) * (torques -  torch.multiply(-joint_velocity, kd))
                 input_data.append(joint_diff)
             # tanh to max rel pos diff is -1, 1
             relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
@@ -374,8 +374,8 @@ class DrQV2Agent:
     def __init__(self, img_shape, state_shape, action_shape, device, lr, feature_dim,
                  hidden_dim, critic_target_tau, num_expl_steps,
                  update_every_steps, stddev_schedule, stddev_clip,
-                 use_tb, max_actions, joint_indexes, robot_name, experiment_type, control_iterations):
-        self.control_iterations = control_iterations
+                 use_tb, max_actions, joint_indexes, robot_name, experiment_type, controller_iterations):
+        self.controller_iterations = controller_iterations
         self.experiment_type = experiment_type
         self.joint_indexes = joint_indexes
         self.n_joints = len(self.joint_indexes)
@@ -405,17 +405,18 @@ class DrQV2Agent:
 
         self.critic = Critic(self.encoder.repr_dim, action_shape, feature_dim,
                              hidden_dim, self.joint_indexes,
-                             robot_dh=self.robot_dh, kine_type=self.kine_type, control_iterations=control_iterations).to(device)
+                             robot_dh=self.robot_dh, kine_type=self.kine_type, controller_iterations=controller_iterations).to(device)
         self.critic_target = Critic(self.encoder.repr_dim, action_shape,
                                     feature_dim, hidden_dim, self.joint_indexes,
-                                    robot_dh=self.robot_dh, kine_type=self.kine_type, control_iterations=control_iterations).to(device)
+                                    robot_dh=self.robot_dh, kine_type=self.kine_type, controller_iterations=controller_iterations).to(device)
         self.critic_target.load_state_dict(self.critic.state_dict())
 
         # optimizers
         self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=lr)
-        self.controller_opt = torch.optim.Adam(self.inverse_controller.parameters(), lr=lr)
+        if self.critic.controller_input_size:
+            self.controller_opt = torch.optim.Adam(self.critic.inverse_controller.parameters(), lr=lr)
 
         # data augmentation
         self.aug = RandomShiftsAug(pad=4)
@@ -466,12 +467,12 @@ class DrQV2Agent:
 
         controller_loss = 0.0
         # train controller
-        if 'control' in  self.experiment_type:
+        if self.critic.controller_input_size:
             no_action = torch.zeros((bs, self.n_joints)).to(self.device)
             next_eef = self.critic.kinematic_view_eef(no_action, next_body[:,:self.n_joints])
             controller_loss = F.mse_loss(pred_next_eef, next_eef)
             self.controller_opt.zero_grad(set_to_none=True)
-            controller_loss.backward()
+            controller_loss.backward(retain_graph=True)
 
         if self.use_tb:
             metrics['critic_target_q'] = target_Q.mean().item()
@@ -485,6 +486,8 @@ class DrQV2Agent:
         critic_loss.backward()
         self.critic_opt.step()
         self.encoder_opt.step()
+        if self.critic.controller_input_size:
+            self.controller_opt.step()
 
         return metrics
 

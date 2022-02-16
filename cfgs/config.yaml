@@ -49,6 +49,7 @@ agent:
   stddev_clip: 0.3
   robot_name: ???
   experiment_type: base
+  controller_iterations: ???
 
 hydra:
   run:
