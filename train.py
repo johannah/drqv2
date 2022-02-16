@@ -41,7 +41,7 @@ torch.backends.cudnn.benchmark = True
 #    cfg.action_shape = action_spec.shape
 #    return hydra.utils.instantiate(cfg)
 
-def make_agent(img_shape, state_shape, action_shape, max_actions, joint_indexes, robot_name, cfg, device):
+def make_agent(img_shape, state_shape, action_shape, max_actions, joint_indexes, robot_name, controller_iterations, cfg, device):
     cfg.img_shape = img_shape
     cfg.state_shape = state_shape
     print('MAKING IMAGE with IMG %s STATE %s ACTION %s'%(img_shape, state_shape, action_shape))
@@ -49,6 +49,7 @@ def make_agent(img_shape, state_shape, action_shape, max_actions, joint_indexes,
     cfg.action_shape = action_shape
     cfg.joint_indexes = [int(ii) for ii in joint_indexes]
     cfg.robot_name = robot_name
+    cfg.controller_iterations = controller_iterations
     return hydra.utils.instantiate(cfg)
 
 class Workspace:
@@ -67,6 +68,7 @@ class Workspace:
                                 self.train_env.max_actions,
                                 self.train_env.joint_indexes,
                                 self.train_env.robot_name,
+                                self.train_env.controller_iterations,
                                 self.cfg.agent,
                                 self.cfg.device)
         #self.agent = make_agent(self.train_env.observation_spec(),

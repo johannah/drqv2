@@ -275,5 +275,6 @@ def make_dm(name, frame_stack, action_repeat, seed, use_joint_position=False):
     env.body_shape = env.physics.position().shape
     env.joint_indexes = np.arange(env.action_shape[0])
     env.robot_name = domain
+    env.controller_iterations = action_repeat
     env.max_actions = np.ones(env.action_shape, dtype=np.float32)*env.action_spec().maximum
     return env

@@ -253,6 +253,7 @@ class DRQWrapper(Wrapper):
         self.bpos = self.base_matrix[:3, 3]
         self.bori = T.mat2quat(self.base_matrix)
 
+        self.controller_iterations = int(self.env.control_timestep / self.env.model_timestep)
         self._max_episode_steps = self.env.horizon
         if self.randomize_on_init:
             print('setting initial randomization')
