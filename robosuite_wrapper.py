@@ -415,7 +415,7 @@ class DRQWrapper(Wrapper):
         self.step_counter += 1
 
         ob_dict, reward, done, info = self.env.step(action)
-        reward += -np.linalg.norm(action[self.joint_indexes])/self.n_joints
+        #reward += -np.linalg.norm(action[self.joint_indexes])/self.n_joints
         self._frames.append(self._get_image_obs(ob_dict))
         img = self._get_stack_obs()
         body = self.make_body()
