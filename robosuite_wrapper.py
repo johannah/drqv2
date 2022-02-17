@@ -21,7 +21,7 @@ from IPython import embed
 
 DEFAULT_COLOR_ARGS = {
     'geom_names': None,  # all geoms are randomized
-    'randomize_local': True,  # sample nearby colors
+    'randomize_local': False,  # sample nearby colors
     'randomize_material':
     True,  # randomize material reflectance / shininess / specular
     'local_rgb_interpolation': 0.3,
@@ -151,9 +151,6 @@ class DRQWrapper(Wrapper):
             self.random_state = np.random.RandomState(seed)
         else:
             self.random_state = None
-        if randomize_color:
-            # randomize textures
-            color_randomization_args['randomize_texture_images'] = True
         if randomize_camera:
             camera_randomization_args['camera_names'] = env.camera_names
         self.randomize_color = randomize_color
@@ -185,6 +182,17 @@ class DRQWrapper(Wrapper):
             self.joint_indexes = np.arange(self.n_joints).astype(np.int)
 
         if self.randomize_color:
+            if color_randomization_args['geom_names'] == None:
+                use_geoms = []
+                # nonexhaustive list of what not to randomize
+                exclude_geoms = ['robot','gripper','mount','collision','ball', 'cube']
+                for g in list(env.sim.model.geom_names):
+                    exclude = [e for e in exclude_geoms if e in g]
+                    if not len(exclude):
+                        use_geoms.append(g)
+                print('randomizing color geoms', use_geoms)
+                color_randomization_args['geom_names'] = use_geoms
+
             self.tex_modder = TextureModder(sim=self.env.sim,
                                             random_state=self.random_state,
                                             **self.color_randomization_args)
@@ -336,8 +344,7 @@ class DRQWrapper(Wrapper):
                 if verbose:
                     print("adding key: {}".format(key))
                 obs_pix = obs_dict[key][::-1]
-                obs_pix = obs_pix.reshape(3, obs_pix.shape[0],
-                                          obs_pix.shape[1])
+                obs_pix = obs_pix.swapaxes(0,2)
                 ob_lst.append(np.array(obs_pix))
         # concatenate over channels
         if len(ob_lst):

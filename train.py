@@ -91,12 +91,29 @@ class Workspace:
 
             self.fps = 20
         else:
-            def make_robosuite_env(task_name, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111):
+            def make_robosuite_env(task_name, use_proprio_obs, env_kwargs, discount, frame_stack=3, seed=1111, randomize=False):
                 env = robosuite.make(
                             env_name=task_name,
                             **env_kwargs,
                         )
-                env = DRQWrapper(env, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount)
+                if randomize:
+                    randomize_color =   True
+                    randomize_dynamics =True
+                    randomize_camera =  True
+                    randomize_lighting =True
+
+                else:
+                    randomize_color = False
+                    randomize_dynamics = False
+                    randomize_camera = False
+                    randomize_lighting = False
+
+                env = DRQWrapper(env, use_proprio_obs=use_proprio_obs, frame_stack=frame_stack, discount=discount,
+                                 randomize_color=randomize_color,
+                                 randomize_camera=randomize_camera,
+                                 randomize_lighting=randomize_lighting,
+                                 randomize_dynamics=randomize_dynamics,
+                                 )
                 return env
 
             self.env_kwargs = {}
@@ -113,21 +130,30 @@ class Workspace:
             for k in self.cfg.env_override:
                 self.env_kwargs[k] = self.cfg.env_override[k]
             self.fps = self.env_kwargs['control_freq']
+            randomize = False
+            if 'randomize' in self.env_kwargs.keys():
+                if self.env_kwargs['randomize']:
+                    randomize = True
+                del self.env_kwargs['randomize']
+
             self.train_env = make_robosuite_env(
                                             task_name=self.task_name,
                                             use_proprio_obs=self.cfg.use_proprio_obs,
                                             env_kwargs=self.env_kwargs,
                                             discount=self.cfg.discount,
                                             frame_stack=self.cfg.frame_stack,
-                                            seed=self.cfg.seed)
-            self.train_env.robot_name = self.env_kwargs['robots']
+                                            seed=self.cfg.seed,
+                                            randomize=randomize
+                                             )
             self.eval_env = make_robosuite_env(
                                            task_name=self.task_name,
                                            use_proprio_obs=self.cfg.use_proprio_obs,
                                            env_kwargs=self.env_kwargs,
                                            discount=self.cfg.discount,
                                            frame_stack=self.cfg.frame_stack,
-                                           seed=self.cfg.seed+1)
+                                           seed=self.cfg.seed+1,
+                                            )
+            self.train_env.robot_name = self.env_kwargs['robots']
 
         self.data_specs = (
                       specs.Array(shape=self.train_env.img_shape, dtype=np.uint8, name='img_obs'),
