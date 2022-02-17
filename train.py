@@ -97,12 +97,14 @@ class Workspace:
                             **env_kwargs,
                         )
                 if randomize:
-                    randomize_color =   True
-                    randomize_dynamics =True
-                    randomize_camera =  True
-                    randomize_lighting =True
+                    print('randomizing environment', seed)
+                    randomize_color = True
+                    randomize_dynamics = True
+                    randomize_camera = True
+                    randomize_lighting = True
 
                 else:
+                    print('normal environment', seed)
                     randomize_color = False
                     randomize_dynamics = False
                     randomize_camera = False
@@ -152,6 +154,7 @@ class Workspace:
                                            discount=self.cfg.discount,
                                            frame_stack=self.cfg.frame_stack,
                                            seed=self.cfg.seed+1,
+                                           randomize=randomize
                                             )
             self.train_env.robot_name = self.env_kwargs['robots']
 
