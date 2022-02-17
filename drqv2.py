@@ -296,13 +296,13 @@ class Critic(nn.Module):
         print('using controller', self.controller_input_size)
 
     def run_inverse_controller(self, h, action, joint_position, joint_velocity):
-        # desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
-        # torques = je*kp + jv*kd
-        # (n/kp)(torques - (jv*kd)) = je
-        torques = action[:,:self.n_joints]
         if self.controller_input_size == 0:
-            return torques
+            return action[:,:self.n_joints]
         else:
+            # desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
+            # torques = je*kp + jv*kd
+            # (n/kp)(torques - (jv*kd)) = je
+            torques = action[:,:self.n_joints]
             if 'blind' in self.kine_type:
                 # pretend we know nothing about the body - predict position and
                 # velocity
