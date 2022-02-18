@@ -181,6 +181,7 @@ class DRQWrapper(Wrapper):
         except:
             self.joint_indexes = np.arange(self.n_joints).astype(np.int)
 
+        print('environment', self.randomize_color)
         if self.randomize_color:
             if color_randomization_args['geom_names'] == None:
                 use_geoms = []
@@ -190,9 +191,9 @@ class DRQWrapper(Wrapper):
                     exclude = [e for e in exclude_geoms if e in g]
                     if not len(exclude):
                         use_geoms.append(g)
-                print('randomizing color geoms', use_geoms)
                 color_randomization_args['geom_names'] = use_geoms
 
+            print('randomizing color geoms', color_randomization_args['geom_names'])
             self.tex_modder = TextureModder(sim=self.env.sim,
                                             random_state=self.random_state,
                                             **self.color_randomization_args)
