@@ -1,0 +1,7 @@
+defaults:
+  - medium
+  - _self_
+
+task_name: manipulator_bring_ball
+agent:
+  experiment_type: 'kine_DH_abs_posquat_blind_structured_controller'
