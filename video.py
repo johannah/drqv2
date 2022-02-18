@@ -6,11 +6,10 @@ import cv2
 import imageio
 import numpy as np
 
-
 class VideoRecorder:
-    def __init__(self, root_dir, render_size=256, fps=20):
+    def __init__(self, root_dir, render_size=256, fps=20, save_dir_name='eval_video'):
         if root_dir is not None:
-            self.save_dir = root_dir / 'eval_video'
+            self.save_dir = root_dir / save_dir_name
             self.save_dir.mkdir(exist_ok=True)
         else:
             self.save_dir = None
@@ -41,9 +40,9 @@ class VideoRecorder:
 
 
 class TrainVideoRecorder:
-    def __init__(self, root_dir, render_size=256, fps=20):
+    def __init__(self, root_dir, render_size=256, fps=20, save_dir_name='train_video'):
         if root_dir is not None:
-            self.save_dir = root_dir / 'train_video'
+            self.save_dir = root_dir / save_dir_name
             self.save_dir.mkdir(exist_ok=True)
         else:
             self.save_dir = None
@@ -59,6 +58,7 @@ class TrainVideoRecorder:
 
     def record(self, obs):
         if self.enabled:
+            # frame is rotated 2022.02.17!
             frame = cv2.resize(obs[-3:].transpose(1, 2, 0),
                                dsize=(self.render_size, self.render_size),
                                interpolation=cv2.INTER_CUBIC)
@@ -67,4 +67,5 @@ class TrainVideoRecorder:
     def save(self, file_name):
         if self.enabled:
             path = self.save_dir / file_name
+            print('saving video to', path)
             imageio.mimsave(str(path), self.frames, fps=self.fps)

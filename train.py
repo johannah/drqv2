@@ -97,12 +97,13 @@ class Workspace:
                             **env_kwargs,
                         )
                 if randomize:
+                    print('randomizing DR')
                     randomize_color =   True
                     randomize_dynamics =True
                     randomize_camera =  True
                     randomize_lighting =True
-
                 else:
+                    print('no DR')
                     randomize_color = False
                     randomize_dynamics = False
                     randomize_camera = False
@@ -134,6 +135,7 @@ class Workspace:
             if 'randomize' in self.env_kwargs.keys():
                 if self.env_kwargs['randomize']:
                     randomize = True
+
                 del self.env_kwargs['randomize']
 
             self.train_env = make_robosuite_env(
@@ -152,6 +154,7 @@ class Workspace:
                                            discount=self.cfg.discount,
                                            frame_stack=self.cfg.frame_stack,
                                            seed=self.cfg.seed+1,
+                                            randomize=randomize
                                             )
             self.train_env.robot_name = self.env_kwargs['robots']
 
@@ -201,6 +204,18 @@ class Workspace:
             self._replay_iter = iter(self.replay_loader)
         return self._replay_iter
 
+    def run_eval_agent(self):
+        self.replay_storage = ReplayBufferStorage(self.data_specs,
+                                                  self.work_dir / 'eval_buffer')
+
+        self.replay_loader_eval = make_replay_loader(
+            use_specs_names=self.replay_storage._use_specs_names,
+            replay_dir=self.work_dir / 'eval_buffer', max_size=100000,
+            batch_size=self.cfg.batch_size, num_workers=1,
+            save_snapshot=self.cfg.save_snapshot, nstep=self.cfg.nstep, discount=self.cfg.discount)
+        self.eval()
+
+
     def eval(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
@@ -215,6 +230,7 @@ class Workspace:
                                             self.global_step,
                                             eval_mode=True)
                 time_step = self.eval_env.step(action)
+
                 self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
@@ -245,7 +261,7 @@ class Workspace:
         while train_until_step(self.global_step):
             if time_step.last():
                 self._global_episode += 1
-                self.train_video_recorder.save(f'{self.global_frame}.mp4')
+                self.train_video_recorder.save(f'{self.global_frame:0>8}.mp4')
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
