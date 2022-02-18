@@ -114,6 +114,7 @@ class Workspace:
                                  randomize_camera=randomize_camera,
                                  randomize_lighting=randomize_lighting,
                                  randomize_dynamics=randomize_dynamics,
+                                 randomize_on_reset=True,
                                  )
                 return env
 

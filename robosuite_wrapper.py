@@ -9,7 +9,6 @@ from dmc import ExtendedTimeStep
 import numpy as np
 from gym import spaces
 from gym.core import Env
-from robosuite.wrappers import Wrapper
 from collections import deque
 import numpy as np
 import dm_env
@@ -21,7 +20,7 @@ from IPython import embed
 
 DEFAULT_COLOR_ARGS = {
     'geom_names': None,  # all geoms are randomized
-    'randomize_local': False,  # sample nearby colors
+    'randomize_local': True,  # sample nearby colors
     'randomize_material':
     True,  # randomize material reflectance / shininess / specular
     'local_rgb_interpolation': 0.3,
@@ -358,6 +357,7 @@ class DRQWrapper(Wrapper):
         Returns:
             OrderedDict: Environment observation space after reset occurs
         """
+        print('------------reset--------------')
         # undo all randomizations
         self.restore_default_domain()
 
@@ -445,6 +445,7 @@ class DRQWrapper(Wrapper):
         """
         Runs domain randomization over the environment.
         """
+        print('========updating randomization')
         for modder in self.modders:
             modder.randomize()
 

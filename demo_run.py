@@ -5,7 +5,7 @@ from robosuite.controllers import load_controller_config
 from robosuite.utils.input_utils import *
 from robosuite.robots import Bimanual
 import numpy as np
-from robosuite_wrapper import DRQWrapper, DEFAULT_COLOR_ARGS
+from robosuite_wrapper import DRQWrapper
 from IPython import embed
 if __name__ == "__main__":
 

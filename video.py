@@ -59,7 +59,7 @@ class TrainVideoRecorder:
     def record(self, obs):
         if self.enabled:
             # frame is rotated 2022.02.17!
-            frame = cv2.resize(obs[-3:].transpose(1, 2, 0),
+            frame = cv2.resize(obs[-3:].transpose(2,1,0),
                                dsize=(self.render_size, self.render_size),
                                interpolation=cv2.INTER_CUBIC)
             self.frames.append(frame)
