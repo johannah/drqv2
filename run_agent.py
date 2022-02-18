@@ -34,10 +34,10 @@ torch.backends.cudnn.benchmark = True
 
 def run_agent(w, n_episodes=1):
     step, episode, total_reward = 0, 0, 0
-    video_recorder = TrainVideoRecorder(w.work_dir, fps=w.fps, save_dir_name='run_eval_video')
+    #video_recorder = TrainVideoRecorder(w.work_dir, fps=w.fps, save_dir_name='run_eval_video')
     for e in range(n_episodes):
         time_step = w.eval_env.reset()
-        video_recorder.init(time_step.img_obs, enabled=True)
+        #video_recorder.init(time_step.img_obs, enabled=True)
         while not time_step.last():
             with torch.no_grad(), utils.eval_mode(w.agent):
                 action = w.agent.act(time_step.img_obs,
@@ -46,12 +46,12 @@ def run_agent(w, n_episodes=1):
                                         eval_mode=True)
             time_step = w.eval_env.step(action)
 
-            video_recorder.record(time_step.img_obs)
+            #video_recorder.record(time_step.img_obs)
             total_reward += time_step.reward
             step += 1
 
         episode += 1
-        video_recorder.save(f'{w.global_frame:0>8}_{e:0>3}.mp4')
+        #video_recorder.save(f'{w.global_frame:0>8}_{e:0>3}.mp4')
 
     print(total_reward/episode)
 
