@@ -8,7 +8,7 @@ agent:
 env_override:
  ignore_done: False
  robots: Jaco
- control_freq: 10
+ control_freq: 30
  reward_shaping: true
  use_object_obs: false
  use_camera_obs: true
