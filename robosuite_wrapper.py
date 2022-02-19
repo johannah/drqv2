@@ -23,8 +23,8 @@ DEFAULT_COLOR_ARGS = {
     'randomize_local': True,  # sample nearby colors
     'randomize_material':
     True,  # randomize material reflectance / shininess / specular
-    'local_rgb_interpolation': 0.3,
-    'local_material_interpolation': 0.3,
+    'local_rgb_interpolation': 0.05,
+    'local_material_interpolation': 0.05,
     'texture_variations': ['rgb', 'checker', 'noise',
                            'gradient'],  # all texture variation types
     'randomize_skybox': True,  # by default, randomize skybox too
@@ -35,8 +35,8 @@ DEFAULT_CAMERA_ARGS = {
     'randomize_position': True,
     'randomize_rotation': True,
     'randomize_fovy': True,
-    'position_perturbation_size': 0.01,
-    'rotation_perturbation_size': 0.087,
+    'position_perturbation_size': 0.005,
+    'rotation_perturbation_size': 0.006,
     'fovy_perturbation_size': 5.,
 }
 
@@ -59,8 +59,8 @@ DEFAULT_DYNAMICS_ARGS = {
     # Opt parameters
     'randomize_density': True,
     'randomize_viscosity': True,
-    'density_perturbation_ratio': 0.1,
-    'viscosity_perturbation_ratio': 0.1,
+    'density_perturbation_ratio': 0.01,
+    'viscosity_perturbation_ratio': 0.01,
 
     # Body parameters
     'body_names': None,  # all bodies randomized
@@ -68,19 +68,19 @@ DEFAULT_DYNAMICS_ARGS = {
     'randomize_quaternion': True,
     'randomize_inertia': True,
     'randomize_mass': True,
-    'position_perturbation_size': 0.0015,
+    'position_perturbation_size': 0.00015,
     'quaternion_perturbation_size': 0.003,
-    'inertia_perturbation_ratio': 0.02,
-    'mass_perturbation_ratio': 0.02,
+    'inertia_perturbation_ratio': 0.002,
+    'mass_perturbation_ratio': 0.002,
 
     # Geom parameters
     'geom_names': None,  # all geoms randomized
     'randomize_friction': True,
     'randomize_solref': True,
     'randomize_solimp': True,
-    'friction_perturbation_ratio': 0.1,
-    'solref_perturbation_ratio': 0.1,
-    'solimp_perturbation_ratio': 0.1,
+    'friction_perturbation_ratio': 0.01,
+    'solref_perturbation_ratio': 0.01,
+    'solimp_perturbation_ratio': 0.01,
 
     # Joint parameters
     'joint_names': None,  # all joints randomized
@@ -88,10 +88,10 @@ DEFAULT_DYNAMICS_ARGS = {
     'randomize_frictionloss': True,
     'randomize_damping': True,
     'randomize_armature': True,
-    'stiffness_perturbation_ratio': 0.1,
-    'frictionloss_perturbation_size': 0.05,
-    'damping_perturbation_size': 0.01,
-    'armature_perturbation_size': 0.01,
+    'stiffness_perturbation_ratio': 0.01,
+    'frictionloss_perturbation_size': 0.005,
+    'damping_perturbation_size': 0.001,
+    'armature_perturbation_size': 0.001,
 }
 
 class DRQWrapper(Wrapper):
