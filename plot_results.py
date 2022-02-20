@@ -7,7 +7,7 @@ import pandas as pd
 from glob import glob
 from IPython import embed
 import yaml
-
+import datetime
 def load_config(yaml_path):
     loaded = {}
     with open(yaml_path, "r") as stream:
@@ -25,7 +25,7 @@ stddev2difficulty = {'linear(1.0,0.1,100000)':'easy',
                      'linear(1.0,0.1,2000000)':'hard',}
 
 rolling = 100
-
+fixed_randomization_date = datetime.datetime(2022,2,18,0,0,0)
 
 for task in ['reacher', 'reach_', 'lift', 'manipulator']:
     train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
@@ -45,7 +45,8 @@ for task in ['reacher', 'reach_', 'lift', 'manipulator']:
             exp_name = os.path.split(os.path.split(pp)[0])[1]
             exp_id = exp_name[:6]
             date = os.path.split(os.path.split(os.path.split(pp)[0])[0])[1]
-            day = int(date[-2:])
+            intdate = [int(d) for d in date.split('.')]
+            ddate = datetime.datetime(intdate[0], intdate[1], intdate[2])
             eval_loaded = pd.read_csv(pp)
             eval_loaded['phase'] = 'eval'
             eval_loaded['episode_reward_smooth']  = eval_loaded['episode_reward'].rolling(rolling).mean()
@@ -62,6 +63,16 @@ for task in ['reacher', 'reach_', 'lift', 'manipulator']:
                 env_name = config_yaml['env_name']
             except:
                 env_name = 'UNK'
+            try:
+                control_rate = config_yaml['env_override']['control_freq']
+            except:
+                control_rate = config_yaml['action_repeat']
+            randomize = 'noDR'
+            if 'env_override' in config_yaml.keys():
+                if 'randomize' in config_yaml['env_override'].keys() :
+                    if config_yaml['env_override']['randomize'] and ddate >= fixed_randomization_date:
+                        randomize = 'DR'
+
             try:
                 img_obs = config_yaml['env_override']['use_camera_obs']
                 object_obs = config_yaml['env_override']['use_object_obs']
@@ -96,7 +107,7 @@ for task in ['reacher', 'reach_', 'lift', 'manipulator']:
             loaded['use_img_obs'] = int(img_obs)
             loaded['use_object_obs'] = int(object_obs)
             loaded['use_proprio_obs'] = int(proprio_obs)
-            loaded['name'] = exp_id +  env_name +  obs_type + '_KINE' + kinematic_type + difficulty+controller + str(day)
+            loaded['name'] = exp_id +  env_name +  obs_type + randomize + 'CR%02d'%control_rate + '_KINE' + kinematic_type + difficulty+controller + str(ddate.day)
             if start:
                 start = False
                 data = loaded

@@ -37,7 +37,7 @@ DEFAULT_CAMERA_ARGS = {
     'randomize_fovy': True,
     'position_perturbation_size': 0.005,
     'rotation_perturbation_size': 0.006,
-    'fovy_perturbation_size': 5.,
+    'fovy_perturbation_size': 3.,
 }
 
 DEFAULT_LIGHTING_ARGS = {
@@ -59,8 +59,8 @@ DEFAULT_DYNAMICS_ARGS = {
     # Opt parameters
     'randomize_density': True,
     'randomize_viscosity': True,
-    'density_perturbation_ratio': 0.01,
-    'viscosity_perturbation_ratio': 0.01,
+    'density_perturbation_ratio': 0.001,
+    'viscosity_perturbation_ratio': 0.001,
 
     # Body parameters
     'body_names': None,  # all bodies randomized
@@ -69,18 +69,18 @@ DEFAULT_DYNAMICS_ARGS = {
     'randomize_inertia': True,
     'randomize_mass': True,
     'position_perturbation_size': 0.00015,
-    'quaternion_perturbation_size': 0.003,
-    'inertia_perturbation_ratio': 0.002,
-    'mass_perturbation_ratio': 0.002,
+    'quaternion_perturbation_size': 0.0003,
+    'inertia_perturbation_ratio': 0.0002,
+    'mass_perturbation_ratio': 0.0002,
 
     # Geom parameters
     'geom_names': None,  # all geoms randomized
     'randomize_friction': True,
     'randomize_solref': True,
     'randomize_solimp': True,
-    'friction_perturbation_ratio': 0.01,
-    'solref_perturbation_ratio': 0.01,
-    'solimp_perturbation_ratio': 0.01,
+    'friction_perturbation_ratio': 0.001,
+    'solref_perturbation_ratio': 0.001,
+    'solimp_perturbation_ratio': 0.001,
 
     # Joint parameters
     'joint_names': None,  # all joints randomized
@@ -88,10 +88,10 @@ DEFAULT_DYNAMICS_ARGS = {
     'randomize_frictionloss': True,
     'randomize_damping': True,
     'randomize_armature': True,
-    'stiffness_perturbation_ratio': 0.01,
-    'frictionloss_perturbation_size': 0.005,
-    'damping_perturbation_size': 0.001,
-    'armature_perturbation_size': 0.001,
+    'stiffness_perturbation_ratio': 0.001,
+    'frictionloss_perturbation_size': 0.0005,
+    'damping_perturbation_size': 0.0001,
+    'armature_perturbation_size': 0.0001,
 }
 
 class DRQWrapper(Wrapper):
