@@ -35,8 +35,8 @@ DEFAULT_CAMERA_ARGS = {
     'randomize_position': True,
     'randomize_rotation': True,
     'randomize_fovy': True,
-    'position_perturbation_size': 0.005,
-    'rotation_perturbation_size': 0.006,
+    'position_perturbation_size': 0.05,
+    'rotation_perturbation_size': 0.06,
     'fovy_perturbation_size': 3.,
 }
 
@@ -48,11 +48,11 @@ DEFAULT_LIGHTING_ARGS = {
     'randomize_ambient': True,
     'randomize_diffuse': True,
     'randomize_active': True,
-    'position_perturbation_size': 0.1,
+    'position_perturbation_size': 0.3,
     'direction_perturbation_size': 0.35,
-    'specular_perturbation_size': 0.1,
-    'ambient_perturbation_size': 0.1,
-    'diffuse_perturbation_size': 0.1,
+    'specular_perturbation_size': 0.2,
+    'ambient_perturbation_size': 0.3,
+    'diffuse_perturbation_size': 0.3,
 }
 
 DEFAULT_DYNAMICS_ARGS = {
@@ -357,7 +357,6 @@ class DRQWrapper(Wrapper):
         Returns:
             OrderedDict: Environment observation space after reset occurs
         """
-        print('------------reset--------------')
         # undo all randomizations
         self.restore_default_domain()
 
@@ -445,7 +444,8 @@ class DRQWrapper(Wrapper):
         """
         Runs domain randomization over the environment.
         """
-        print('========updating randomization')
+        if len(self.modders):
+            print('========updating randomization')
         for modder in self.modders:
             modder.randomize()
 

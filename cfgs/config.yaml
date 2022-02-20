@@ -8,7 +8,8 @@ frame_stack: 3
 action_repeat: 2
 discount: 0.99
 # train settings
-num_seed_frames: 4000
+#num_seed_frames: 4000
+num_seed_frames: 600
 # eval
 eval_every_frames: 10000
 num_eval_episodes: 5

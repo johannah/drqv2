@@ -142,7 +142,7 @@ def run_main(cfg):
     print(f'resuming: {snapshot}')
     workspace.load_snapshot()
     #run_agent(workspace, 3)
-    run_clone_agent(workspace, 8)
+    run_clone_agent(workspace, 7)
 
 if __name__ == '__main__':
     run_main()

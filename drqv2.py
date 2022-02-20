@@ -317,6 +317,9 @@ class Critic(nn.Module):
                 relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
                 return relative_joint_position
             else:
+                # in the joint_position case,  try to correct error in the requested joint position vs real joint
+                # position
+                # int he torques case, try to estimate next joint position
                 # tanh to max rel pos diff is -1, 1
                 input_data = [h, torques, joint_position, joint_velocity]
                 relative_joint_position = torch.tanh(self.inverse_controller(torch.cat(input_data, dim=-1)))
@@ -355,25 +358,6 @@ class Critic(nn.Module):
             eef_return.append(self.get_eef_rep(rel_eef))
         return torch.cat(eef_return, dim=-1)
 
-#    def forward_control(self, relative_joint_qpos, joint_qpos, joint_qvel, num_iterations):
-#        # num_iterations in robosuite is: int(self.control_timestep / self.model_timestep)
-#        # torques = pos_err * kp + vel_err * kd
-#        kp = 200
-#        kd = .3
-#        desired_qpos = joint_qpos + relative_joint_qpos
-#        position_error = desired_qpos - joint_qpos
-#        vel_pos_error = -joint_qvel
-#        desired_torques = torch.multiply(position_error, kp) + torch.multiply(vel_pos_error, kd)
-#        # Return desired torques plus gravity compensations
-#        torques = num_iterations*(desired_torque + self.torque_compensation)
-#        return torques
-#
-    #def forward(self, obs, action, body):
-    #    control_torques = self.run_control(action[:,:self.n_joints], body[:,:self.n_joints], body[:,self.n_joints:(2*self.n_joints)], self.num_iterations)
-    #    torques = self.controller(np.cat([obs, control_torques], dim=-1))
-    #    return torques
-
-
     def forward(self, obs, action, body):
         h = self.trunk(obs)
         input_cats = [h, action]
@@ -384,13 +368,11 @@ class Critic(nn.Module):
         # estimate the relative joint position, given this action
         relative_joint_position = self.run_inverse_controller(h, action, joint_position, joint_velocity)
         eef = self.kinematic_view_eef(relative_joint_position, joint_position)
-        if self.abs_eef + self.rel_eef:
+        if self.abs_eef or self.rel_eef:
             input_cats.append(eef)
         h_action = torch.cat(input_cats, dim=-1)
         q1 = self.Q1(h_action)
         q2 = self.Q2(h_action)
-        if torch.isnan(min([q1.min(), q2.min(), eef.min()])):
-            embed()
         return q1, q2, eef[:,:self.dh_size]
 
 
@@ -476,6 +458,8 @@ class DrQV2Agent:
     def update_critic(self, obs, body, action, reward, discount, next_obs, next_body, step):
         metrics = dict()
         bs = obs.shape[0]
+        # CALLING DEBUG
+        Q1, Q2, pred_next_eef = self.critic(obs, action, body)
         with torch.no_grad():
             stddev = utils.schedule(self.stddev_schedule, step)
             dist = self.actor(next_obs, stddev)
