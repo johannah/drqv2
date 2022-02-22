@@ -237,21 +237,14 @@ class Critic(nn.Module):
         print('size of dh inputs', self.dh_size)
 
         self.num_dh = 0
-        # are we including relative and abs eef?
-        # TODO this isn't coherent yet
-        self.abs_eef = False
         self.rel_eef = False
+        self.abs_eef = True
         if 'DH' in self.kine_type:
+            if 'abs' in self.kine_type:
+                self.num_dh += 1
             if 'rel' in self.kine_type:
                 self.num_dh += 1
                 self.rel_eef = True
-            if 'abs' in self.kine_type:
-                self.abs_eef = True
-                self.num_dh += 1
-            # fall back to abs eef on
-            if not (self.abs_eef + self.rel_eef):
-                self.abs_eef = True
-                self.num_dh += 1
         print('number of dh inputs', self.num_dh)
         self.input_size += self.num_dh*self.dh_size
         print('using kinematic type', self.kine_type, self.input_size)
@@ -349,8 +342,7 @@ class Critic(nn.Module):
         # next eef position in abs position
         next_eef = self.robot_dh(next_joint_position)
         eef_return = []
-        if self.abs_eef:
-            eef_return.append(self.get_eef_rep(next_eef))
+        eef_return.append(self.get_eef_rep(next_eef))
         if self.rel_eef:
             current_eef = self.robot_dh(joint_position)
             # next eef position relative to current position
@@ -368,7 +360,7 @@ class Critic(nn.Module):
         # estimate the relative joint position, given this action
         relative_joint_position = self.run_inverse_controller(h, action, joint_position, joint_velocity)
         eef = self.kinematic_view_eef(relative_joint_position, joint_position)
-        if self.abs_eef or self.rel_eef:
+        if self.num_dh:
             input_cats.append(eef)
         h_action = torch.cat(input_cats, dim=-1)
         q1 = self.Q1(h_action)

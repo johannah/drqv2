@@ -27,7 +27,7 @@ stddev2difficulty = {'linear(1.0,0.1,100000)':'easy',
 rolling = 100
 fixed_randomization_date = datetime.datetime(2022,2,18,0,0,0)
 
-for task in ['reacher', 'reach_', 'lift', 'manipulator']:
+for task in ['reacher', 'can', 'door', 'reach_', 'lift', 'manipulator']:
     train_paths = glob(os.path.join('exp_local', '2022*', '*%s*'%task, 'train.csv'))
     train_paths += glob(os.path.join('../../drqv2_state/exp_local', '2022*', '*%s*'%task, 'train.csv'))
     train_paths = sorted(train_paths)
