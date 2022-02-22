@@ -219,6 +219,9 @@ class Critic(nn.Module):
         if 'body' in self.kine_type:
             self.use_body = True
             self.input_size += len(self.joint_indexes)
+            print('using body')
+        else:
+            print('not using body')
         self.dh_size = 0
         self.return_pose = False
         self.return_quat = False
