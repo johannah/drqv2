@@ -19,6 +19,6 @@ experiment=reach
 seeds=(1000 1001 1002 1003 1004)
 num_seeds=5
 # environment
-tasks=(robosuite_random_reach_joint_position_img robosuite_random_reach_joint_position_img_body robosuite_random_reach_joint_position_img_DH_abs_posquat_control robosuite_random_reach_joint_position_img_DH_abs_posquat_control_body)
+exps=(none body kine_DH_abs_posquat kine_DH_abs_posquat_body)
 cd $HOME/johannah/DH22/drqv2/
-python train.py task=${tasks[(($SLURM_ARRAY_TASK_ID / $num_seeds))]} seed=${seeds[(($SLURM_ARRAY_TASK_ID % $num_seeds))]}
+python train.py task=robosuite_reach_joint_position_img agent.experiment_type=${exps[(($SLURM_ARRAY_TASK_ID / $num_seeds))]} seed=${seeds[(($SLURM_ARRAY_TASK_ID % $num_seeds))]}
