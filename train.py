@@ -33,6 +33,9 @@ from logger import Logger
 from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
 from IPython import embed
+"""
+making eval_env & train_env in robosuite did not work as expected. eval_env wasnt running - perhaps due to rendering process
+"""
 
 torch.backends.cudnn.benchmark = True
 
@@ -86,8 +89,6 @@ class Workspace:
             self.task_name = self.cfg.task_name
             self.train_env = dmc.make_dm(self.cfg.task_name, self.cfg.frame_stack,
                                       self.cfg.action_repeat, self.cfg.seed)
-            self.eval_env = dmc.make_dm(self.cfg.task_name, self.cfg.frame_stack,
-                                     self.cfg.action_repeat, self.cfg.seed)
 
             self.fps = 20
         else:
@@ -148,15 +149,6 @@ class Workspace:
                                             seed=self.cfg.seed,
                                             randomize=randomize
                                              )
-            self.eval_env = make_robosuite_env(
-                                           task_name=self.task_name,
-                                           use_proprio_obs=self.cfg.use_proprio_obs,
-                                           env_kwargs=self.env_kwargs,
-                                           discount=self.cfg.discount,
-                                           frame_stack=self.cfg.frame_stack,
-                                           seed=self.cfg.seed+1,
-                                           randomize=randomize
-                                            )
             self.train_env.robot_name = self.env_kwargs['robots']
 
         self.data_specs = (
@@ -222,17 +214,17 @@ class Workspace:
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
 
         while eval_until_episode(episode):
-            time_step = self.eval_env.reset()
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            time_step = self.train_env.reset()
+            self.video_recorder.init(self.train_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(time_step.img_obs,
                                             time_step.state_obs,
                                             self.global_step,
                                             eval_mode=True)
-                time_step = self.eval_env.step(action)
+                time_step = self.train_env.step(action)
 
-                self.video_recorder.record(self.eval_env)
+                self.video_recorder.record(self.train_env)
                 total_reward += time_step.reward
                 step += 1
 
