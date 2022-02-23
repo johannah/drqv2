@@ -34,7 +34,9 @@ from replay_buffer import ReplayBufferStorage, make_replay_loader
 from video import TrainVideoRecorder, VideoRecorder
 from IPython import embed
 """
-making eval_env & train_env in robosuite did not work as expected. eval_env wasnt running - perhaps due to rendering process
+making both eval_env & train_envs in robosuite did not work as expected.
+eval_env wasnt actually rendering
+now we train/eval on one environment
 """
 
 torch.backends.cudnn.benchmark = True
