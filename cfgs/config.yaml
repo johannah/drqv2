@@ -8,16 +8,15 @@ frame_stack: 3
 action_repeat: 2
 discount: 0.99
 # train settings
-#num_seed_frames: 4000
-num_seed_frames: 600
+num_seed_frames: 4000
 # eval
 eval_every_frames: 10000
 num_eval_episodes: 5
 # snapshot
 save_snapshot: true
 # replay buffer
-replay_buffer_size: 300000
-replay_buffer_num_workers: 1
+replay_buffer_size: 500000
+replay_buffer_num_workers: 2
 nstep: 3
 batch_size: 256
 # misc
@@ -25,7 +24,7 @@ seed: 1
 device: cuda
 save_video: true
 save_train_video: false
-use_tb: true
+use_tb: false
 # experiment
 experiment: exp
 # agent
@@ -51,12 +50,14 @@ agent:
   robot_name: ???
   experiment_type: base
   controller_iterations: ???
-
+env_override:
+  control_freq: ${action_repeat}
+  controller_config_file: 'torque' # default to torque (no controller)
 hydra:
   run:
-    dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${hydra.job.override_dirname}
+    dir: /scratch/jhansen/DH22/${task_name}_${agent.experiment_type}_${env_override.control_freq}_${env_override.controller_config_file}/seed_${seed}/${now:%Y-%m-%d_%H-%M-%S}/
   sweep:
-    dir: ./exp/${now:%Y.%m.%d}/${now:%H%M}_${agent_cfg.experiment}
+    dir: /scratch/jhansen/DH22/${task_name}_${agent.experiment_type}_${env_override.control_freq}_${env_override.controller_config_file}/seed_${seed}/${now:%Y-%m-%d_%H-%M-%S}/
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
@@ -65,4 +66,4 @@ hydra:
     tasks_per_node: 1
     mem_gb: 160
     nodes: 1
-    submitit_folder: ./exp/${now:%Y.%m.%d}/${now:%H%M%S}_${agent_cfg.experiment}/.slurm
+    submitit_folder: /scratch/jhansen/DH22/${task_name}_${agent.experiment_type}_${env_override.control_freq}_${env_override.controller_config_file}/${task_name}/${now:%Y-%m-%d_%H-%M-%S}/.slurm
