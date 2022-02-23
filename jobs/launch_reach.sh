@@ -8,7 +8,6 @@
 
 unset display
 
-module load opencv
 module load python/3.8
 
 source $HOME/.bashrc
