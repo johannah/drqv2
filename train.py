@@ -247,6 +247,8 @@ class Workspace:
                                       self.cfg.action_repeat)
         eval_every_step = utils.Every(self.cfg.eval_every_frames,
                                       self.cfg.action_repeat)
+        # try to evaluate
+        self.eval()
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
@@ -255,6 +257,16 @@ class Workspace:
         metrics = None
         while train_until_step(self.global_step):
             if time_step.last():
+                # try to evaluate
+                if eval_every_step(self.global_step):
+                    self.logger.log('eval_total_time', self.timer.total_time(),
+                                    self.global_frame)
+                    self.eval()
+                    # try to save snapshot
+                    if self.cfg.save_snapshot:
+                        self.save_snapshot()
+
+
                 self._global_episode += 1
                 self.train_video_recorder.save(f'{self.global_frame:0>8}.mp4')
                 # wait until all the metrics schema is populated
@@ -278,15 +290,6 @@ class Workspace:
                 self.train_video_recorder.init(time_step.img_obs)
                 episode_step = 0
                 episode_reward = 0
-
-            # try to evaluate
-            if eval_every_step(self.global_step):
-                self.logger.log('eval_total_time', self.timer.total_time(),
-                                self.global_frame)
-                self.eval()
-                # try to save snapshot
-                if self.cfg.save_snapshot:
-                    self.save_snapshot()
 
             # sample action
             with torch.no_grad(), utils.eval_mode(self.agent):
