@@ -49,7 +49,7 @@ agent:
   stddev_schedule: ${stddev_schedule}
   stddev_clip: 0.3
   robot_name: ???
-  experiment_type: base
+  experiment_type: none
   controller_iterations: ???
 
 hydra:

@@ -248,6 +248,8 @@ class Workspace:
         eval_every_step = utils.Every(self.cfg.eval_every_frames,
                                       self.cfg.action_repeat)
         # try to evaluate
+        self.logger.log('eval_total_time', self.timer.total_time(),
+                                    self.global_frame)
         self.eval()
 
         episode_step, episode_reward = 0, 0
