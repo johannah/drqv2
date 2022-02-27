@@ -264,6 +264,10 @@ class Critic(nn.Module):
         self.apply(utils.weight_init)
 
         self.controller_input_size = 0
+        if 'detach' in self.kine_type:
+            self.detach = True
+        else:
+            self.detach = False
         if 'controller' in self.kine_type:
             print('using controller')
             self.controller_input_size = feature_dim + self.n_joints + self.n_joints*2
@@ -363,6 +367,9 @@ class Critic(nn.Module):
         # estimate the relative joint position, given this action
         relative_joint_position = self.run_inverse_controller(h, action, joint_position, joint_velocity)
         eef = self.kinematic_view_eef(relative_joint_position, joint_position)
+        if self.detach:
+            print('detached')
+            eef = eef.detach()
         if self.num_dh:
             input_cats.append(eef)
         h_action = torch.cat(input_cats, dim=-1)

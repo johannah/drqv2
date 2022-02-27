@@ -23,8 +23,8 @@ DEFAULT_COLOR_ARGS = {
     'randomize_local': True,  # sample nearby colors
     'randomize_material':
     True,  # randomize material reflectance / shininess / specular
-    'local_rgb_interpolation': 0.05,
-    'local_material_interpolation': 0.05,
+    'local_rgb_interpolation': 0.15,
+    'local_material_interpolation': 0.15,
     'texture_variations': ['rgb', 'checker', 'noise',
                            'gradient'],  # all texture variation types
     'randomize_skybox': True,  # by default, randomize skybox too
@@ -35,8 +35,8 @@ DEFAULT_CAMERA_ARGS = {
     'randomize_position': True,
     'randomize_rotation': True,
     'randomize_fovy': True,
-    'position_perturbation_size': 0.05,
-    'rotation_perturbation_size': 0.06,
+    'position_perturbation_size': 0.03,
+    'rotation_perturbation_size': 0.02,
     'fovy_perturbation_size': 3.,
 }
 
@@ -137,6 +137,7 @@ class DRQWrapper(Wrapper):
         randomize_every_n_steps=0,
         frame_stack=3,
         discount=.99,
+        randomize_episode_prob=1,
     ):
         super().__init__(env)
 
@@ -150,6 +151,7 @@ class DRQWrapper(Wrapper):
             self.random_state = np.random.RandomState(seed)
         else:
             self.random_state = None
+        self.randomize_episode_prob = randomize_episode_prob
         if randomize_camera:
             camera_randomization_args['camera_names'] = env.camera_names
         self.randomize_color = randomize_color
@@ -447,7 +449,8 @@ class DRQWrapper(Wrapper):
         if len(self.modders):
             print('========updating randomization')
         for modder in self.modders:
-            modder.randomize()
+            if self.random_state.rand() < self.randomize_episode_prob:
+                 modder.randomize()
 
     def save_default_domain(self):
         """

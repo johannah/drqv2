@@ -103,7 +103,7 @@ class Workspace:
                     print('randomizing environment', seed)
                     randomize_color = True
                     randomize_dynamics = False
-                    randomize_camera = False
+                    randomize_camera = True
                     randomize_lighting = True
                 else:
                     print('normal environment', seed)
@@ -118,6 +118,7 @@ class Workspace:
                                  randomize_lighting=randomize_lighting,
                                  randomize_dynamics=randomize_dynamics,
                                  randomize_on_reset=True,
+                                 randomize_episode_prob=.5,
                                  )
                 return env
 

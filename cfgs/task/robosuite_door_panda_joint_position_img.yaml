@@ -1,26 +1,26 @@
 defaults:
  - medium
  - _self_
-env_name: LiftRandomStart
-agent:
-    experiment_type: None
+env_name: DoorRandomStart
 use_proprio_obs: False
+agent:
+    experiment_type: None # options are body, kine_DH_abs_posquat, kine_DH_abs_posquat_body
 env_override:
  ignore_done: False
- robots: Jaco
- control_freq: 5
+ robots: Panda
+ control_freq: 10
  reward_shaping: true
  use_object_obs: false
  use_camera_obs: true
  has_renderer: false
  has_offscreen_renderer: true
- camera_names: 'lownearfrontview'
+ camera_names: 'frontview'
  camera_widths: 84
  camera_heights: 84
  horizon: 100
- controller_config_file: 'jaco_joint_position_5hz.json'
+ controller_config_file: 'panda_joint_position_10hz.json'
  hard_reset: false
  randomize: false
 
-task_name: robosuite_lift_easy
+task_name: robosuite_panda_door_easy
 

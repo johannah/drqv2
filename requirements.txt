@@ -24,7 +24,7 @@ glfw==1.12.0+computecanada
 google-auth==2.6.0
 google-auth-oauthlib==0.4.6+computecanada
 grpcio==1.41.1+computecanada
-gym==0.18.0+computecanada
+gym
 h5py==3.6.0+computecanada
 hydra-core==1.1.1
 hydra-submitit-launcher==1.1.6
@@ -59,7 +59,7 @@ parso==0.8.3+computecanada
 pathspec==0.9.0+computecanada
 pexpect==4.8.0+computecanada
 pickleshare==0.7.5+computecanada
-Pillow==7.2.0+computecanada
+Pillow
 Pillow-SIMD==7.0.0.post3+computecanada
 platformdirs==2.5.1
 prompt-toolkit==3.0.28

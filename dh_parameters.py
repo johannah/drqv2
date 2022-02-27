@@ -57,7 +57,12 @@ Panda_DH_lengths = {'D1':0.333,
 
 
 DH_attributes_Panda = {
-          'DH_a':[0, 0, 0, Panda_DH_lengths['e1'], -Panda_DH_lengths['e1'], 0, Panda_DH_lengths['j7'], 0],
+          'base_matrix': np.array([[0,1,0,0],
+                                   [1,0,0,0],
+                                   [0,0,-1,0],
+                                   [0,0,0,1]]),
+          'DH_a':[0, 0, 0, Panda_DH_lengths['e1'], -Panda_DH_lengths['e1'], 0, 
+            Panda_DH_lengths['j7'], 0],
            'DH_alpha':[0, -np.pi/2.0, np.pi/2.0, np.pi/2.0, -np.pi/2.0, np.pi/2.0, np.pi/2.0, 0],
            'DH_theta_sign':[1, 1, 1, 1, 1, 1, 1, 0],
            'DH_theta_offset':[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
